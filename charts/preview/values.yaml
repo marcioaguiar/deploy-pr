@@ -1,0 +1,55 @@
+# Default values for the preview chart. deploy-pr fills these in per PR; this
+# file lists every knob the chart understands so a Helm operator can render it
+# manually for debugging (`helm template charts/preview --values overrides.yaml`).
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# Number of pod replicas. Previews are typically single-replica.
+replicas: 1
+
+# Container port the workload listens on.
+containerPort: 8080
+
+# Hostname for the ingress, e.g. pr-123.preview.example.com.
+host: ""
+
+# Ingress controller class name. Default assumes ingress-nginx.
+ingressClassName: nginx
+
+# Whether the chart's own template should create the Namespace. Leave false
+# when deploy-pr passes --create-namespace through the Helm SDK -- that path
+# creates the namespace without owning it via templating, which is what
+# `helm uninstall` plus a separate kubectl delete ns expects.
+createNamespace: false
+
+# Optional TLS configuration. When enabled the ingress references a Secret
+# named after the host (with dots replaced by dashes). cert-manager or
+# external-secrets is responsible for populating that secret.
+tls:
+  enabled: false
+
+# Free-form environment variables, rendered as plain key/value envs on the
+# container. Use a separate Secret + envFrom for sensitive data.
+env: {}
+
+# Resource requests/limits. Conservative defaults suited to ephemeral previews.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Provenance metadata. deploy-pr sets these from PRInfo at install time so
+# `deploy-pr list` and any future reaper can tell who owns each resource.
+prNumber: ""
+sha: ""

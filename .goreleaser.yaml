@@ -1,0 +1,38 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: deploy-pr
+    binary: deploy-pr
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/marcioaguiar/deploy-pr/cmd.version={{.Version}}
+      - -X github.com/marcioaguiar/deploy-pr/cmd.commit={{.Commit}}
+      - -X github.com/marcioaguiar/deploy-pr/cmd.date={{.Date}}
+
+archives:
+  - id: deploy-pr
+    formats: [tar.gz]
+    name_template: "deploy-pr_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  draft: true
