@@ -1,0 +1,23 @@
+# Binaries
+deploy-pr
+deploy-pr.exe
+/dist/
+
+# Go
+/vendor/
+*.test
+*.out
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Helm
+charts/preview/charts/
