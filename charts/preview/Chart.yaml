@@ -1,0 +1,6 @@
+apiVersion: v2
+name: preview
+description: Ephemeral preview environment for a single GitHub PR.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
