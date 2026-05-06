@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -88,7 +89,9 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 
 			fmt.Fprintf(root.stdout, "Preview ready: https://%s\n", host)
 
-			_ = commentOnPR // U6 wires sticky comment posting here.
+			if commentOnPR {
+				postReadyComment(c.Context(), root, pr, tag, fmt.Sprintf("https://%s", host))
+			}
 			return nil
 		},
 	}
@@ -129,6 +132,30 @@ func mapBuildErr(err error) error {
 		return nil
 	}
 	return infraErr(err)
+}
+
+// postReadyComment posts (or updates) the sticky preview comment. Failures
+// are logged but do not fail `up` -- the deploy already succeeded and a
+// missing comment is recoverable by re-running.
+func postReadyComment(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag, url string) {
+	token, source, err := ghpkg.TokenResolver{Explicit: root.githubToken}.Resolve()
+	if err != nil {
+		root.logger.Warn("comment-on-pr: no token available, skipping", "err", err)
+		return
+	}
+	client := ghpkg.NewClient(token, source)
+	body := ghpkg.CommentInput{
+		Status:    ghpkg.StatusReady,
+		URL:       url,
+		ImageTag:  fmt.Sprintf("%s:%s", root.cfg.ECRRepoURI, tag),
+		Timestamp: time.Now(),
+	}.RenderBody()
+	id, err := client.UpsertStickyComment(ctx, pr.RepoOwner, pr.RepoName, pr.Number, body)
+	if err != nil {
+		root.logger.Warn("comment-on-pr: failed to post sticky comment (deploy succeeded)", "err", err)
+		return
+	}
+	root.logger.Info("comment-on-pr: sticky comment posted", "id", id)
 }
 
 func installPreview(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag, namespace, host string) error {
