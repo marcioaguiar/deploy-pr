@@ -1,0 +1,72 @@
+# Reference workflow for running deploy-pr against a PR. Drop this in any
+# repo whose application you want previewable, adjust the env block, and
+# create the IAM role described in docs/aws-oidc-setup.md.
+#
+# This workflow runs deploy-pr from source via `go install`. Once you cut a
+# binary release (see .goreleaser.yaml), swap the install step for a download
+# of a tagged binary -- much faster and pinned.
+
+name: PR preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+# One workflow per PR. A new push cancels any in-flight deploy so we don't
+# race two image rollouts on the same release.
+concurrency:
+  group: preview-${{ github.event.number }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write       # to assume the AWS IAM role via OIDC
+  contents: read
+  pull-requests: write  # to post the sticky preview comment
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      AWS_ROLE_ARN: arn:aws:iam::000000000000:role/github-deploy-pr
+      EKS_CLUSTER: dev-cluster
+      DEPLOY_PR_BASE_DOMAIN: preview.example.com
+      DEPLOY_PR_ECR_REPO_URI: 000000000000.dkr.ecr.us-east-1.amazonaws.com/myapp
+      DEPLOY_PR_CLUSTER_NAME: dev-cluster
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Install deploy-pr
+        run: go install github.com/marcioaguiar/deploy-pr@latest
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Docker Buildx
+        if: github.event.action != 'closed'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
+
+      - name: Deploy preview
+        if: github.event.action != 'closed'
+        run: deploy-pr up ${{ github.event.number }} --comment-on-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tear down preview
+        if: github.event.action == 'closed'
+        run: deploy-pr down ${{ github.event.number }} --comment-on-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
