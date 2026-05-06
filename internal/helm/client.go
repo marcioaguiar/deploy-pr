@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"helm.sh/helm/v3/pkg/action"
@@ -117,6 +118,63 @@ func (m *Manager) Uninstall(releaseName string) error {
 		return fmt.Errorf("uninstall %s: %w", releaseName, err)
 	}
 	return nil
+}
+
+// ListReleasesByNamespacePrefix returns every Helm release whose namespace
+// begins with prefix, across every namespace the caller can see. Used by
+// `deploy-pr list` to enumerate active previews.
+func ListReleasesByNamespacePrefix(prefix string, logger *slog.Logger) ([]*release.Release, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	settings := cli.New()
+	debug := func(format string, args ...any) {
+		logger.Debug("helm", "msg", fmt.Sprintf(format, args...))
+	}
+	cfg := new(action.Configuration)
+	if err := cfg.Init(settings.RESTClientGetter(), "", "secret", debug); err != nil {
+		return nil, fmt.Errorf("helm config init: %w", err)
+	}
+	list := action.NewList(cfg)
+	list.AllNamespaces = true
+	list.All = true
+	rels, err := list.Run()
+	if err != nil {
+		return nil, fmt.Errorf("helm list: %w", err)
+	}
+	out := make([]*release.Release, 0, len(rels))
+	for _, r := range rels {
+		if strings.HasPrefix(r.Namespace, prefix) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+// ListNamespacesWithPrefix returns the names of every namespace beginning
+// with prefix. Used to detect orphans (namespace without Helm release) in
+// `deploy-pr list`.
+func ListNamespacesWithPrefix(ctx context.Context, prefix string) ([]string, error) {
+	settings := cli.New()
+	restCfg, err := settings.RESTClientGetter().ToRESTConfig()
+	if err != nil {
+		return nil, fmt.Errorf("rest config: %w", err)
+	}
+	cs, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("kube client: %w", err)
+	}
+	list, err := cs.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list namespaces: %w", err)
+	}
+	out := []string{}
+	for _, ns := range list.Items {
+		if strings.HasPrefix(ns.Name, prefix) {
+			out = append(out, ns.Name)
+		}
+	}
+	return out, nil
 }
 
 // DeleteNamespace removes a namespace via the kube API. A NotFound error is
