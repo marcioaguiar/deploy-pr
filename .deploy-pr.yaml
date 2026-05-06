@@ -1,0 +1,39 @@
+# deploy-pr configuration. Every field is also accepted as DEPLOY_PR_* env var
+# (e.g. DEPLOY_PR_BASE_DOMAIN) and many as CLI flags. Precedence:
+# flags > env > this file > defaults.
+#
+# Required for `up`:
+#   ecr_repo_uri, cluster_name, base_domain
+# Required for `down`:
+#   cluster_name
+
+# GitHub repo to read PRs from. Optional -- defaults to `git remote get-url origin`.
+# repo: marcioaguiar/myapp
+
+# Fully-qualified ECR repository URI. Image tags are pushed as
+# pr-<N>-<sha> and pr-<N>-latest under this URI.
+# ecr_repo_uri: 123456789012.dkr.ecr.us-east-1.amazonaws.com/myapp
+
+# AWS region. Defaults to us-east-1.
+region: us-east-1
+
+# EKS cluster name. The CLI calls eks:DescribeCluster to resolve the API
+# endpoint and CA, so the role/user running deploy-pr needs that permission.
+# cluster_name: dev-eks
+
+# Base DNS suffix for preview URLs. A PR becomes https://pr-<N>.<base_domain>.
+# Assumes a wildcard ingress + ExternalDNS is configured for *.preview.<base_domain>.
+# base_domain: preview.example.com
+
+# Path to the Helm chart (relative to repo root). Defaults to charts/preview.
+chart_path: charts/preview
+
+# Namespace naming. A PR is deployed to namespace <prefix><N> (default: pr-123).
+namespace:
+  prefix: pr-
+
+# Per-command timeout for builds and Helm operations.
+timeout: 10m
+
+# Log format: text (default) or json. Overridden by --log-format.
+log_format: text
