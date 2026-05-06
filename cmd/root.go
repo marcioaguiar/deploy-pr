@@ -26,10 +26,11 @@ func Execute() {
 // subcommand RunE functions can read configuration and log without
 // re-loading.
 type rootOpts struct {
-	configPath string
-	logFormat  string
-	verbose    bool
-	repo       string
+	configPath  string
+	logFormat   string
+	verbose     bool
+	repo        string
+	githubToken string
 
 	cfg    *config.Config
 	logger *slog.Logger
@@ -77,6 +78,7 @@ func NewRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.logFormat, "log-format", "", "log format: text or json (overrides config)")
 	cmd.PersistentFlags().BoolVarP(&opts.verbose, "verbose", "v", false, "enable verbose (debug) logs")
 	cmd.PersistentFlags().StringVar(&opts.repo, "repo", "", "GitHub repo as owner/name (overrides git remote auto-detect)")
+	cmd.PersistentFlags().StringVar(&opts.githubToken, "github-token", "", "GitHub token (default: GITHUB_TOKEN env, then `gh auth token`)")
 
 	cmd.AddCommand(newUpCmd(opts))
 	cmd.AddCommand(newDownCmd(opts))
