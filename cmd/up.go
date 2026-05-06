@@ -2,13 +2,15 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 
 	"github.com/spf13/cobra"
 
+	"github.com/marcioaguiar/deploy-pr/internal/docker"
+	"github.com/marcioaguiar/deploy-pr/internal/ecr"
 	ghpkg "github.com/marcioaguiar/deploy-pr/internal/github"
+	"github.com/marcioaguiar/deploy-pr/internal/helm"
 )
 
 func newUpCmd(root *rootOpts) *cobra.Command {
@@ -41,24 +43,53 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 				"draft", pr.IsDraft,
 			)
 
+			namespace := fmt.Sprintf("%s%d", root.cfg.Namespace.Prefix, pr.Number)
+			host := fmt.Sprintf("%s.%s", namespace, root.cfg.BaseDomain)
+
 			if dryRun {
 				fmt.Fprintf(root.stdout, "PR #%d on %s/%s\n", pr.Number, pr.RepoOwner, pr.RepoName)
-				fmt.Fprintf(root.stdout, "  title:   %s\n", pr.Title)
-				fmt.Fprintf(root.stdout, "  author:  %s\n", pr.Author)
-				fmt.Fprintf(root.stdout, "  branch:  %s -> %s\n", pr.HeadRef, pr.BaseRef)
-				fmt.Fprintf(root.stdout, "  sha:     %s\n", pr.HeadSHA)
-				fmt.Fprintf(root.stdout, "  draft:   %t\n", pr.IsDraft)
+				fmt.Fprintf(root.stdout, "  title:     %s\n", pr.Title)
+				fmt.Fprintf(root.stdout, "  author:    %s\n", pr.Author)
+				fmt.Fprintf(root.stdout, "  branch:    %s -> %s\n", pr.HeadRef, pr.BaseRef)
+				fmt.Fprintf(root.stdout, "  sha:       %s\n", pr.HeadSHA)
+				fmt.Fprintf(root.stdout, "  draft:     %t\n", pr.IsDraft)
+				fmt.Fprintf(root.stdout, "  namespace: %s\n", namespace)
 				if root.cfg.BaseDomain != "" {
-					fmt.Fprintf(root.stdout, "  url:     https://%s%d.%s\n",
-						root.cfg.Namespace.Prefix, pr.Number, root.cfg.BaseDomain)
+					fmt.Fprintf(root.stdout, "  url:       https://%s\n", host)
+				}
+				if root.cfg.ECRRepoURI != "" {
+					tag := imageTag
+					if tag == "" {
+						tag = fmt.Sprintf("pr-%d-%s", pr.Number, pr.ShortSHA())
+					}
+					fmt.Fprintf(root.stdout, "  image:     %s:%s\n", root.cfg.ECRRepoURI, tag)
 				}
 				fmt.Fprintln(root.stdout, "(dry-run: no build, push, or deploy performed)")
 				return nil
 			}
 
-			_ = commentOnPR
-			_ = imageTag
-			return errors.New("up: build/push/deploy not yet implemented (U3-U5)")
+			if err := root.cfg.ValidateForUp(); err != nil {
+				return userErr(err)
+			}
+
+			tag := imageTag
+			if tag == "" {
+				tag = fmt.Sprintf("pr-%d-%s", pr.Number, pr.ShortSHA())
+				if err := buildAndPushImage(c.Context(), root, pr, tag); err != nil {
+					return err
+				}
+			} else {
+				root.logger.Info("skipping build, using --image-tag override", "tag", tag)
+			}
+
+			if err := installPreview(c.Context(), root, pr, tag, namespace, host); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(root.stdout, "Preview ready: https://%s\n", host)
+
+			_ = commentOnPR // U6 wires sticky comment posting here.
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&commentOnPR, "comment-on-pr", false, "post or update a sticky preview-URL comment on the PR")
@@ -67,61 +98,73 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 	return cmd
 }
 
-// resolvePR is shared by up and down: it determines the target repo, resolves
-// a token, and fetches PR metadata.
-func resolvePR(ctx context.Context, root *rootOpts, number int) (*ghpkg.PRInfo, error) {
-	owner, name, err := repoFor(root)
+func buildAndPushImage(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag string) error {
+	root.logger.Info("authenticating to ECR", "region", root.cfg.Region)
+	auth, err := ecr.New(ctx, root.cfg.Region)
 	if err != nil {
-		return nil, userErr(err)
+		return infraErr(fmt.Errorf("ECR auth init: %w", err))
+	}
+	if _, err := auth.LoginToECR(ctx); err != nil {
+		return infraErr(err)
 	}
 
-	token, source, err := ghpkg.TokenResolver{Explicit: root.githubToken}.Resolve()
-	if err != nil {
-		return nil, userErr(err)
-	}
-	root.logger.Debug("resolved github token", "source", source)
-
-	client := ghpkg.NewClient(token, source)
-	pr, err := client.GetPR(ctx, owner, name, number)
-	if err != nil {
-		switch {
-		case errors.Is(err, ghpkg.ErrPRNotFound):
-			return nil, userErr(err)
-		case errors.Is(err, ghpkg.ErrAuthFailed):
-			return nil, userErr(err)
-		default:
-			return nil, infraErr(err)
-		}
-	}
-	return pr, nil
+	latest := fmt.Sprintf("pr-%d-latest", pr.Number)
+	root.logger.Info("building image",
+		"tags", []string{tag, latest},
+		"context", ".",
+	)
+	builder := docker.New(root.stderr, root.stderr)
+	return mapBuildErr(builder.Build(ctx, docker.BuildOptions{
+		ContextDir: ".",
+		Tags: []string{
+			fmt.Sprintf("%s:%s", root.cfg.ECRRepoURI, tag),
+			fmt.Sprintf("%s:%s", root.cfg.ECRRepoURI, latest),
+		},
+		Push: true,
+	}))
 }
 
-// repoFor returns owner, name based on --repo, config.repo, or git remote
-// auto-detection -- in that order.
-func repoFor(root *rootOpts) (string, string, error) {
-	configured := root.cfg.Repo
-	if configured == "" {
-		o, n, err := ghpkg.DetectRepoFromGit()
-		if err != nil {
-			return "", "", fmt.Errorf("%w (set --repo or repo: in config to override)", err)
-		}
-		return o, n, nil
+func mapBuildErr(err error) error {
+	if err == nil {
+		return nil
 	}
-	o, n, ok := splitOwnerName(configured)
-	if !ok {
-		return "", "", fmt.Errorf("repo %q must be in owner/name form", configured)
-	}
-	return o, n, nil
+	return infraErr(err)
 }
 
-func splitOwnerName(s string) (string, string, bool) {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '/' {
-			if i == 0 || i == len(s)-1 {
-				return "", "", false
-			}
-			return s[:i], s[i+1:], true
-		}
+func installPreview(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag, namespace, host string) error {
+	chart, err := helm.LoadChart(root.cfg.ChartPath)
+	if err != nil {
+		return userErr(fmt.Errorf("load chart %s: %w", root.cfg.ChartPath, err))
 	}
-	return "", "", false
+
+	values := helm.BuildValues(helm.ValuesInput{
+		PRNumber:        pr.Number,
+		ShortSHA:        pr.ShortSHA(),
+		ImageRepository: root.cfg.ECRRepoURI,
+		ImageTag:        tag,
+		Host:            host,
+	})
+
+	mgr, err := helm.NewManager(namespace, root.logger)
+	if err != nil {
+		return infraErr(err)
+	}
+
+	rel, err := mgr.UpgradeOrInstall(ctx, helm.UpgradeOptions{
+		ReleaseName: namespace,
+		Namespace:   namespace,
+		Chart:       chart,
+		Values:      values,
+		Timeout:     root.cfg.Timeout,
+	})
+	if err != nil {
+		return infraErr(fmt.Errorf("helm upgrade --install: %w", err))
+	}
+	root.logger.Info("helm release ready",
+		"release", rel.Name,
+		"namespace", rel.Namespace,
+		"revision", rel.Version,
+		"status", rel.Info.Status.String(),
+	)
+	return nil
 }
