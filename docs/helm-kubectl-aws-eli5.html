@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>helm, kubectl, and aws — how they connect to your account</title>
+<style>
+  :root {
+    --bg: #fbf9f4;
+    --ink: #1c1c1c;
+    --muted: #5a5a5a;
+    --line: #e6e2d6;
+    --accent: #c0392b;
+    --accent-2: #1e6091;
+    --green: #2e7d4f;
+    --yellow: #f1c40f;
+    --code-bg: #f3efe5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    font-size: 17px;
+  }
+  .page {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 56px 28px 96px;
+  }
+  header.hero {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+  header.hero .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  h1 {
+    font-size: 36px;
+    line-height: 1.2;
+    margin: 8px 0 12px;
+    font-weight: 700;
+  }
+  .lede {
+    font-size: 19px;
+    color: var(--muted);
+    margin: 0;
+  }
+  h2 {
+    font-size: 26px;
+    margin-top: 56px;
+    margin-bottom: 12px;
+    line-height: 1.3;
+  }
+  h2 .num {
+    display: inline-block;
+    width: 34px;
+    height: 34px;
+    line-height: 34px;
+    text-align: center;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    font-size: 16px;
+    margin-right: 10px;
+    vertical-align: middle;
+    font-weight: 700;
+  }
+  h3 { font-size: 19px; margin-top: 28px; margin-bottom: 8px; }
+  p { margin: 12px 0; }
+  code, pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: 0.92em; }
+  pre {
+    background: var(--code-bg);
+    border-left: 3px solid var(--accent-2);
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 13.5px;
+    line-height: 1.5;
+    border-radius: 0 6px 6px 0;
+  }
+  pre code { background: none; padding: 0; }
+  .analogy {
+    background: #fff8e1;
+    border: 1px solid #f3deb0;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 22px 0;
+  }
+  .analogy h4 {
+    margin: 0 0 6px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #8a6d1a;
+  }
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: #fdf2f0;
+    padding: 12px 16px;
+    margin: 18px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .callout.good {
+    border-color: var(--green);
+    background: #eef7f1;
+  }
+  .callout.info {
+    border-color: var(--accent-2);
+    background: #eef4f9;
+  }
+  .callout strong { display: block; margin-bottom: 2px; }
+  .figure {
+    margin: 24px 0 12px;
+    text-align: center;
+  }
+  .figure svg { max-width: 100%; height: auto; }
+  .caption {
+    font-size: 13.5px;
+    color: var(--muted);
+    margin-top: 6px;
+    text-align: center;
+    font-style: italic;
+  }
+  .three-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin: 20px 0;
+  }
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin: 20px 0;
+  }
+  .card {
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .card h4 {
+    margin: 0 0 6px;
+    font-size: 15px;
+    color: var(--accent-2);
+  }
+  .pill {
+    display: inline-block;
+    background: #ecebe4;
+    color: #444;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+  ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  .toc {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 22px;
+    margin-bottom: 16px;
+  }
+  .toc ol { margin: 6px 0 0; padding-left: 22px; }
+  .toc a { color: var(--accent-2); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  table.stack {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0;
+    font-size: 14.5px;
+  }
+  table.stack th, table.stack td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  table.stack th {
+    background: #fff;
+    color: var(--accent-2);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  table.stack tr:last-child td { border-bottom: 0; }
+  .checklist {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 22px;
+    margin: 18px 0;
+  }
+  .checklist li { margin: 8px 0; }
+  footer {
+    border-top: 1px solid var(--line);
+    margin-top: 56px;
+    padding-top: 18px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  @media (max-width: 720px) {
+    .two-col, .three-col { grid-template-columns: 1fr; }
+    h1 { font-size: 28px; }
+    .page { padding: 36px 18px 64px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="hero">
+  <div class="eyebrow">deploy-pr · explained like you're five</div>
+  <h1>How <code>aws</code>, <code>kubectl</code>, and <code>helm</code> connect to your account — and how to keep your laptop safe</h1>
+  <p class="lede">Three command-line tools, one chain of trust. <code>aws</code> talks to AWS, <code>kubectl</code> talks to Kubernetes, and <code>helm</code> talks <em>through</em> kubectl. Once you see the chain, security becomes obvious: protect the first link and everything downstream follows.</p>
+</header>
+
+<div class="toc">
+  <strong>What we'll cover</strong>
+  <ol>
+    <li><a href="#cast">The cast: three CLIs, three jobs</a></li>
+    <li><a href="#chain">The chain of trust (one big diagram)</a></li>
+    <li><a href="#aws">How <code>aws</code> connects to your account</a></li>
+    <li><a href="#kubectl">How <code>kubectl</code> connects to the cluster (via AWS)</a></li>
+    <li><a href="#helm">Where <code>helm</code> fits — it borrows kubectl's connection</a></li>
+    <li><a href="#flow">A complete request, end to end</a></li>
+    <li><a href="#secure">Keeping your laptop secure — a practical checklist</a></li>
+    <li><a href="#setup">How easy is the setup, really?</a></li>
+  </ol>
+</div>
+
+<!-- =============================================================== -->
+<h2 id="cast"><span class="num">1</span>The cast: three CLIs, three jobs</h2>
+
+<p>You'll see all three installed side-by-side on most engineers' laptops. They look similar (terminal commands, YAML output) but they each talk to a different system.</p>
+
+<div class="three-col">
+  <div class="card">
+    <span class="pill">cloud</span>
+    <h4>aws</h4>
+    <p style="margin:6px 0;">The AWS CLI. Talks to <strong>AWS APIs</strong>: S3, IAM, EKS, EC2, etc. Authenticates with an AWS identity (access key, SSO, or OIDC token).</p>
+  </div>
+  <div class="card">
+    <span class="pill">kubernetes</span>
+    <h4>kubectl</h4>
+    <p style="margin:6px 0;">The Kubernetes CLI. Talks to a <strong>Kubernetes API server</strong>: list pods, apply YAML, view logs. Needs to know <em>which</em> cluster and <em>who you are</em>.</p>
+  </div>
+  <div class="card">
+    <span class="pill">packaging</span>
+    <h4>helm</h4>
+    <p style="margin:6px 0;">A Kubernetes package manager. Renders templates into Kubernetes YAML, then <strong>asks kubectl's library</strong> to apply it. Helm does not talk to AWS at all.</p>
+  </div>
+</div>
+
+<div class="analogy">
+  <h4>One-line mental model</h4>
+  <p style="margin:0;"><code>aws</code> is your <strong>passport</strong>. <code>kubectl</code> is the <strong>plane ticket</strong> that the passport gets you into. <code>helm</code> is the <strong>luggage you check</strong> once you're already on the plane.</p>
+</div>
+
+<!-- =============================================================== -->
+<h2 id="chain"><span class="num">2</span>The chain of trust (one big diagram)</h2>
+
+<p>Here is the full picture. Read it left-to-right: your laptop holds an AWS identity, that identity gets translated into a short-lived Kubernetes token, and Helm rides on top of that. The Kubernetes API is the only "real" server in the middle.</p>
+
+<div class="figure">
+<svg viewBox="0 0 820 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Chain from your laptop through aws, kubectl, helm to the Kubernetes API and AWS APIs">
+  <defs>
+    <style>
+      .box{fill:#fff;stroke:#1e6091;stroke-width:1.4}
+      .you{fill:#fff8e1;stroke:#c0392b;stroke-width:1.5}
+      .api{fill:#eef7f1;stroke:#2e7d4f;stroke-width:1.4}
+      .lbl{font:700 13px -apple-system,Segoe UI,sans-serif;fill:#1c1c1c}
+      .sub{font:11px ui-monospace,Menlo,monospace;fill:#5a5a5a}
+      .tag{font:600 11px -apple-system,Segoe UI,sans-serif;fill:#1e6091}
+      .red{font:600 11px -apple-system,Segoe UI,sans-serif;fill:#c0392b}
+      .arr{stroke:#5a5a5a;stroke-width:1.4;fill:none;marker-end:url(#a)}
+      .arr2{stroke:#2e7d4f;stroke-width:1.4;fill:none;marker-end:url(#g)}
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a5a5a"/>
+    </marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2e7d4f"/>
+    </marker>
+  </defs>
+
+  <!-- laptop -->
+  <rect class="you" x="20" y="120" width="160" height="120" rx="10"/>
+  <text class="lbl" x="100" y="148" text-anchor="middle">Your laptop</text>
+  <text class="sub" x="100" y="172" text-anchor="middle">~/.aws/credentials</text>
+  <text class="sub" x="100" y="190" text-anchor="middle">~/.aws/config (SSO)</text>
+  <text class="sub" x="100" y="208" text-anchor="middle">~/.kube/config</text>
+  <text class="red" x="100" y="230" text-anchor="middle">← the only secrets you hold</text>
+
+  <!-- aws cli -->
+  <rect class="box" x="220" y="40" width="160" height="80" rx="10"/>
+  <text class="lbl" x="300" y="68" text-anchor="middle">aws CLI</text>
+  <text class="sub" x="300" y="90" text-anchor="middle">signs requests</text>
+  <text class="sub" x="300" y="106" text-anchor="middle">with SigV4</text>
+
+  <!-- kubectl -->
+  <rect class="box" x="220" y="160" width="160" height="80" rx="10"/>
+  <text class="lbl" x="300" y="188" text-anchor="middle">kubectl</text>
+  <text class="sub" x="300" y="210" text-anchor="middle">reads ~/.kube/config</text>
+  <text class="sub" x="300" y="226" text-anchor="middle">exec: aws eks get-token</text>
+
+  <!-- helm -->
+  <rect class="box" x="220" y="280" width="160" height="60" rx="10"/>
+  <text class="lbl" x="300" y="306" text-anchor="middle">helm</text>
+  <text class="sub" x="300" y="326" text-anchor="middle">uses kubectl's config too</text>
+
+  <!-- token broker -->
+  <rect class="box" x="430" y="160" width="170" height="80" rx="10" style="fill:#eef4f9"/>
+  <text class="lbl" x="515" y="188" text-anchor="middle">aws-iam-authenticator</text>
+  <text class="sub" x="515" y="210" text-anchor="middle">turns your AWS identity</text>
+  <text class="sub" x="515" y="226" text-anchor="middle">into a short-lived token</text>
+
+  <!-- AWS APIs -->
+  <rect class="api" x="640" y="40" width="160" height="80" rx="10"/>
+  <text class="lbl" x="720" y="68" text-anchor="middle">AWS APIs</text>
+  <text class="sub" x="720" y="90" text-anchor="middle">IAM, S3, EKS,</text>
+  <text class="sub" x="720" y="106" text-anchor="middle">EC2, etc.</text>
+
+  <!-- k8s API -->
+  <rect class="api" x="640" y="180" width="160" height="120" rx="10"/>
+  <text class="lbl" x="720" y="208" text-anchor="middle">Kubernetes API</text>
+  <text class="sub" x="720" y="230" text-anchor="middle">(EKS control plane)</text>
+  <text class="sub" x="720" y="252" text-anchor="middle">validates the token</text>
+  <text class="sub" x="720" y="270" text-anchor="middle">applies RBAC</text>
+  <text class="sub" x="720" y="288" text-anchor="middle">writes to etcd</text>
+
+  <!-- arrows -->
+  <path class="arr" d="M180,160 C200,140 200,100 220,80"/>     <!-- laptop → aws -->
+  <path class="arr" d="M180,200 L220,200"/>                     <!-- laptop → kubectl -->
+  <path class="arr" d="M180,230 C200,260 200,300 220,310"/>     <!-- laptop → helm -->
+  <path class="arr" d="M300,280 L300,240"/>                     <!-- helm → kubectl -->
+  <path class="arr" d="M380,200 L430,200"/>                     <!-- kubectl → broker -->
+  <path class="arr2" d="M380,80 L640,80"/>                      <!-- aws → AWS APIs -->
+  <path class="arr2" d="M600,210 L640,220"/>                    <!-- broker → k8s API (token validated) -->
+  <path class="arr2" d="M380,180 C500,140 540,140 640,200"/>    <!-- kubectl → k8s API directly -->
+</svg>
+</div>
+<p class="caption">Green arrows leave your machine over the network. Grey arrows are local on your laptop. <code>helm</code> never speaks over the network on its own — it always goes through kubectl's connection.</p>
+
+<!-- =============================================================== -->
+<h2 id="aws"><span class="num">3</span>How <code>aws</code> connects to your account</h2>
+
+<p>The AWS CLI is the foundation. Every other tool here gets its identity from it (directly or indirectly). When you run <code>aws s3 ls</code>, the CLI does four things:</p>
+
+<ol>
+  <li>Looks up <strong>which identity to use</strong> (environment variables, then <code>~/.aws/credentials</code>, then <code>~/.aws/config</code> for SSO/profiles, then EC2/ECS metadata if it's running on AWS).</li>
+  <li>Gets <strong>credentials</strong> for that identity. Either a static access key, or a short-lived token from SSO/STS/OIDC.</li>
+  <li><strong>Signs the request</strong> with SigV4 — a cryptographic signature that proves you hold the credentials, without sending the secret over the wire.</li>
+  <li>Sends the HTTPS request to the right AWS service endpoint (e.g. <code>s3.us-east-1.amazonaws.com</code>).</li>
+</ol>
+
+<h3>The three common identity flavors</h3>
+<table class="stack">
+  <thead>
+    <tr><th>Flavor</th><th>What's on your laptop</th><th>Risk if leaked</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Static access key</strong><br/><code>AKIA…</code></td>
+      <td>A long-lived secret in <code>~/.aws/credentials</code>. Works until rotated.</td>
+      <td><strong>High.</strong> Attacker has your AWS identity until someone notices and revokes the key.</td>
+    </tr>
+    <tr>
+      <td><strong>SSO / IAM Identity Center</strong></td>
+      <td>A short-lived token cached in <code>~/.aws/sso/cache/</code>. You re-login via browser every few hours.</td>
+      <td><strong>Medium.</strong> Tokens expire (typically 8–12 h). Stolen token is dangerous until expiry.</td>
+    </tr>
+    <tr>
+      <td><strong>OIDC / web identity</strong> (used in CI)</td>
+      <td>Nothing persistent. CI presents a signed JWT and gets a 15-minute STS token.</td>
+      <td><strong>Low.</strong> Tokens are minutes-long and tied to a specific GitHub repo/branch.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout good">
+  <strong>Beginner recommendation</strong>
+  Prefer SSO on your laptop, and OIDC for CI. Static access keys should be a last resort — and never committed anywhere.
+</div>
+
+<!-- =============================================================== -->
+<h2 id="kubectl"><span class="num">4</span>How <code>kubectl</code> connects to the cluster (via AWS)</h2>
+
+<p>Kubernetes itself doesn't know what an AWS user is. It only understands its own kinds of identities: client certificates, service-account tokens, or generic bearer tokens. On <strong>EKS</strong> (AWS's hosted Kubernetes), the trick that bridges the gap is in your <code>~/.kube/config</code> file:</p>
+
+<pre><code>users:
+- name: arn:aws:eks:us-east-1:123456789012:cluster/dev
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      command: aws
+      args:
+        - --region
+        - us-east-1
+        - eks
+        - get-token
+        - --cluster-name
+        - dev</code></pre>
+
+<p>That <code>exec:</code> block is the key. Every time kubectl needs to call the API server, it <strong>shells out to <code>aws eks get-token</code></strong>. The aws CLI signs a request using <em>your</em> AWS identity and returns a short-lived bearer token (~15 minutes). kubectl puts that token in the <code>Authorization</code> header and sends its request to the EKS API server.</p>
+
+<div class="analogy">
+  <h4>Why this matters for security</h4>
+  <p style="margin:0;">Your laptop <strong>never stores a long-lived Kubernetes credential</strong>. The only secret is your AWS identity. Revoke that, and access to every EKS cluster goes away in 15 minutes — no certificate rotation, no manual cleanup.</p>
+</div>
+
+<p>Setting this up is one command:</p>
+<pre><code>aws eks update-kubeconfig --name dev --region us-east-1</code></pre>
+<p>That writes the cluster's address, its CA certificate, and the <code>exec:</code> block above into <code>~/.kube/config</code>. From then on, <code>kubectl get pods</code> "just works."</p>
+
+<h3>What the API server does on the other end</h3>
+<ol>
+  <li>Receives the bearer token from kubectl.</li>
+  <li>Asks AWS STS: "Whose token is this?" → gets back an AWS IAM ARN.</li>
+  <li>Looks up that ARN in the <code>aws-auth</code> ConfigMap (or EKS access entries) to map it to a Kubernetes user/group.</li>
+  <li>Runs <strong>RBAC</strong>: is this Kubernetes user allowed to do what they're asking?</li>
+</ol>
+
+<!-- =============================================================== -->
+<h2 id="helm"><span class="num">5</span>Where <code>helm</code> fits — it borrows kubectl's connection</h2>
+
+<p>This is the part that surprises most beginners: <strong>Helm has no concept of "logging in."</strong> It does not have its own credentials. It does not talk to AWS. It does not even open its own HTTP connection to Kubernetes most of the time.</p>
+
+<p>When you run <code>helm install my-app ./chart</code>, here's what actually happens:</p>
+
+<ol>
+  <li>Helm reads your chart's templates and <code>values.yaml</code>.</li>
+  <li>It renders them into plain Kubernetes YAML in memory.</li>
+  <li>It loads the same <code>~/.kube/config</code> that kubectl uses, using the official Kubernetes Go client library.</li>
+  <li>It calls Kubernetes APIs (often <code>kubectl apply</code>-equivalent operations) to create the objects.</li>
+  <li>It stores a record of what it installed — the <strong>release</strong> — as a Secret inside the namespace it deployed to.</li>
+</ol>
+
+<div class="callout info">
+  <strong>The key insight</strong>
+  Anything kubectl can do, helm can do — and only what kubectl can do. If your AWS user is not allowed to create Deployments in namespace <code>prod</code>, helm cannot create them either. Helm gives you templating and release tracking. It does <em>not</em> give you new permissions.
+</div>
+
+<h3>What about Helm repositories?</h3>
+<p>Helm <em>does</em> talk to the network for one thing: downloading charts. <code>helm repo add ...</code> and <code>helm pull ...</code> reach out to chart registries (HTTPS or OCI). These are read-only and usually public; they don't need AWS credentials. If you host charts in a private ECR or S3 bucket, then yes — at that point Helm reuses your AWS identity through a plugin like <code>helm-s3</code> or <code>aws ecr get-login-password</code>.</p>
+
+<!-- =============================================================== -->
+<h2 id="flow"><span class="num">6</span>A complete request, end to end</h2>
+
+<p>To make it concrete, here's what happens when you run <code>helm upgrade --install api ./chart -n pr-123</code> on your laptop:</p>
+
+<div class="figure">
+<svg viewBox="0 0 820 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sequence diagram of a helm command resolving through aws and kubectl to the EKS API server">
+  <defs>
+    <style>
+      .lane{fill:#fff;stroke:#e6e2d6}
+      .ttl{font:700 12px -apple-system,Segoe UI,sans-serif;fill:#1e6091}
+      .step{font:11px ui-monospace,Menlo,monospace;fill:#1c1c1c}
+      .num{font:700 11px -apple-system,Segoe UI,sans-serif;fill:#c0392b}
+      .arr{stroke:#5a5a5a;stroke-width:1.2;fill:none;marker-end:url(#ar)}
+    </style>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a5a5a"/>
+    </marker>
+  </defs>
+
+  <!-- lanes -->
+  <line x1="100" y1="30" x2="100" y2="220" stroke="#1e6091" stroke-width="1"/>
+  <line x1="270" y1="30" x2="270" y2="220" stroke="#1e6091" stroke-width="1"/>
+  <line x1="440" y1="30" x2="440" y2="220" stroke="#1e6091" stroke-width="1"/>
+  <line x1="610" y1="30" x2="610" y2="220" stroke="#1e6091" stroke-width="1"/>
+  <line x1="760" y1="30" x2="760" y2="220" stroke="#2e7d4f" stroke-width="1"/>
+
+  <text class="ttl" x="100" y="24" text-anchor="middle">helm</text>
+  <text class="ttl" x="270" y="24" text-anchor="middle">kubectl libs</text>
+  <text class="ttl" x="440" y="24" text-anchor="middle">aws CLI</text>
+  <text class="ttl" x="610" y="24" text-anchor="middle">AWS STS</text>
+  <text class="ttl" x="760" y="24" text-anchor="middle">EKS API</text>
+
+  <text class="num" x="20" y="58">1</text>
+  <text class="step" x="32" y="58">render chart → YAML</text>
+  <path class="arr" d="M100,70 L270,70"/>
+  <text class="step" x="115" y="64">apply objects</text>
+
+  <text class="num" x="20" y="98">2</text>
+  <text class="step" x="32" y="98">read ~/.kube/config, run exec</text>
+  <path class="arr" d="M270,110 L440,110"/>
+  <text class="step" x="285" y="104">aws eks get-token</text>
+
+  <text class="num" x="20" y="138">3</text>
+  <text class="step" x="32" y="138">sign request, call STS</text>
+  <path class="arr" d="M440,150 L610,150"/>
+  <text class="step" x="455" y="144">GetCallerIdentity (signed)</text>
+
+  <text class="num" x="20" y="178">4</text>
+  <text class="step" x="32" y="178">return bearer token (~15 min)</text>
+  <path class="arr" d="M440,190 L270,190"/>
+  <text class="step" x="285" y="184">token</text>
+
+  <text class="num" x="20" y="218">5</text>
+  <text class="step" x="32" y="218">HTTPS + token → API server</text>
+  <path class="arr" d="M270,228 L760,228"/>
+</svg>
+</div>
+<p class="caption">Steps 2–4 happen once and are cached for ~15 minutes. After that, kubectl/helm hit the EKS API directly with the bearer token until it expires.</p>
+
+<!-- =============================================================== -->
+<h2 id="secure"><span class="num">7</span>Keeping your laptop secure — a practical checklist</h2>
+
+<p>The whole chain rests on what's in your home directory. Protect those few files and everything downstream is safe.</p>
+
+<div class="checklist">
+  <ul>
+    <li><strong>Prefer SSO over static keys.</strong> If you must use access keys, scope them tightly and rotate them every 90 days.</li>
+    <li><strong>Never put credentials in your shell history or repo.</strong> No <code>export AWS_SECRET_ACCESS_KEY=...</code> in <code>.bashrc</code>. No <code>.env</code> with keys committed.</li>
+    <li><strong>Check file permissions.</strong> <code>~/.aws/credentials</code> and <code>~/.kube/config</code> should be <code>chmod 600</code> (read/write for you only).</li>
+    <li><strong>Encrypt your disk.</strong> FileVault on macOS, LUKS on Linux. If your laptop is stolen, this is the only thing standing between the thief and your credentials.</li>
+    <li><strong>Use MFA on the AWS account.</strong> Required for both console and CLI when possible. SSO enforces this naturally.</li>
+    <li><strong>Don't share kubeconfigs.</strong> If a teammate needs cluster access, give them their own AWS identity and let them run <code>aws eks update-kubeconfig</code>. Sharing a kubeconfig file means they inherit <em>your</em> AWS identity through the <code>exec:</code> block.</li>
+    <li><strong>Watch what you <code>curl | bash</code>.</strong> Anything that runs as your user can read <code>~/.aws/credentials</code>. Install <code>aws</code>, <code>kubectl</code>, <code>helm</code> from official sources or your package manager.</li>
+    <li><strong>Use separate AWS profiles per environment.</strong> A <code>dev</code> profile and a <code>prod</code> profile in <code>~/.aws/config</code>, and <code>export AWS_PROFILE=dev</code> in your shell. Makes "oops, wrong cluster" much harder.</li>
+    <li><strong>Audit periodically.</strong> <code>aws iam list-access-keys</code> and <code>kubectl config get-contexts</code> show you what your laptop currently believes it can do.</li>
+  </ul>
+</div>
+
+<div class="callout">
+  <strong>If you lose your laptop</strong>
+  Two phone calls. (1) Your AWS admin revokes your access keys / signs you out of SSO. (2) Your IT helpdesk locks the device. Because kubectl tokens are minutes-long and derived from AWS, step (1) cuts off cluster access automatically — you don't need to chase down every kubeconfig.
+</div>
+
+<!-- =============================================================== -->
+<h2 id="setup"><span class="num">8</span>How easy is the setup, really?</h2>
+
+<p>Genuinely easy. On a fresh laptop, you're typically 10 minutes from your first <code>helm install</code>:</p>
+
+<pre><code># 1. install the tools (Homebrew on macOS shown; use apt/winget elsewhere)
+brew install awscli kubectl helm
+
+# 2. log into AWS — pick ONE
+aws configure sso                  # recommended
+# or
+aws configure                      # static keys (legacy)
+
+# 3. point kubectl at your EKS cluster
+aws eks update-kubeconfig --name dev --region us-east-1
+
+# 4. verify
+kubectl get nodes
+helm list -A</code></pre>
+
+<p>That's it. There is no separate "helm login," no separate "kubectl login" — step 3 wires kubectl to AWS via the <code>exec:</code> trick, and helm picks it up automatically.</p>
+
+<div class="callout good">
+  <strong>The whole point</strong>
+  One identity (your AWS user), one short-lived token mechanism, three CLIs that all benefit from it. Protect the AWS identity well and the rest of the chain takes care of itself.
+</div>
+
+<footer>
+  <p>Part of the <code>deploy-pr</code> docs · written for engineers who are new to the AWS + Kubernetes ecosystem.</p>
+</footer>
+
+</div>
+</body>
+</html>

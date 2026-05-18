@@ -10,15 +10,18 @@ import (
 
 	"github.com/marcioaguiar/deploy-pr/internal/docker"
 	"github.com/marcioaguiar/deploy-pr/internal/ecr"
+	gitpkg "github.com/marcioaguiar/deploy-pr/internal/git"
 	ghpkg "github.com/marcioaguiar/deploy-pr/internal/github"
 	"github.com/marcioaguiar/deploy-pr/internal/helm"
 )
 
 func newUpCmd(root *rootOpts) *cobra.Command {
 	var (
-		commentOnPR bool
-		dryRun      bool
-		imageTag    string
+		commentOnPR     bool
+		dryRun          bool
+		imageTag        string
+		clone           bool
+		createNamespace bool
 	)
 	cmd := &cobra.Command{
 		Use:   "up <PR#>",
@@ -76,14 +79,23 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 			tag := imageTag
 			if tag == "" {
 				tag = fmt.Sprintf("pr-%d-%s", pr.Number, pr.ShortSHA())
-				if err := buildAndPushImage(c.Context(), root, pr, tag); err != nil {
+				contextDir := "."
+				if clone {
+					dir, cleanup, err := clonePRSource(c.Context(), root, pr)
+					if err != nil {
+						return err
+					}
+					defer cleanup()
+					contextDir = dir
+				}
+				if err := buildAndPushImage(c.Context(), root, pr, tag, contextDir); err != nil {
 					return err
 				}
 			} else {
 				root.logger.Info("skipping build, using --image-tag override", "tag", tag)
 			}
 
-			if err := installPreview(c.Context(), root, pr, tag, namespace, host); err != nil {
+			if err := installPreview(c.Context(), root, pr, tag, namespace, host, createNamespace); err != nil {
 				return err
 			}
 
@@ -98,10 +110,12 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 	cmd.Flags().BoolVar(&commentOnPR, "comment-on-pr", false, "post or update a sticky preview-URL comment on the PR")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "resolve PR and report what would happen, then exit")
 	cmd.Flags().StringVar(&imageTag, "image-tag", "", "use a pre-built image tag instead of building locally")
+	cmd.Flags().BoolVar(&clone, "clone", false, "shallow-fetch the PR head into a temp dir and build from there (default: build from current directory)")
+	cmd.Flags().BoolVar(&createNamespace, "create-namespace", true, "create the target namespace if missing (requires cluster-scoped 'create namespaces' RBAC; set false when an admin pre-creates pr-<N>)")
 	return cmd
 }
 
-func buildAndPushImage(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag string) error {
+func buildAndPushImage(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag, contextDir string) error {
 	root.logger.Info("authenticating to ECR", "region", root.cfg.Region)
 	auth, err := ecr.New(ctx, root.cfg.Region)
 	if err != nil {
@@ -114,17 +128,44 @@ func buildAndPushImage(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, ta
 	latest := fmt.Sprintf("pr-%d-latest", pr.Number)
 	root.logger.Info("building image",
 		"tags", []string{tag, latest},
-		"context", ".",
+		"context", contextDir,
 	)
 	builder := docker.New(root.stderr, root.stderr)
 	return mapBuildErr(builder.Build(ctx, docker.BuildOptions{
-		ContextDir: ".",
+		ContextDir: contextDir,
 		Tags: []string{
 			fmt.Sprintf("%s:%s", root.cfg.ECRRepoURI, tag),
 			fmt.Sprintf("%s:%s", root.cfg.ECRRepoURI, latest),
 		},
 		Push: true,
 	}))
+}
+
+// clonePRSource shallow-fetches the PR's head tree into a temp directory and
+// returns the path along with a cleanup function. The returned cleanup must
+// be called by the caller (typically via defer) once the build context is no
+// longer needed.
+func clonePRSource(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo) (string, func(), error) {
+	token, source, err := ghpkg.TokenResolver{Explicit: root.githubToken}.Resolve()
+	if err != nil {
+		return "", nil, userErr(fmt.Errorf("--clone needs a GitHub token: %w", err))
+	}
+	root.logger.Info("cloning PR source",
+		"repo", fmt.Sprintf("%s/%s", pr.RepoOwner, pr.RepoName),
+		"pr", pr.Number,
+		"token_source", string(source),
+	)
+	dir, cleanup, err := gitpkg.ShallowFetch(ctx, gitpkg.FetchOptions{
+		Owner:    pr.RepoOwner,
+		Repo:     pr.RepoName,
+		PRNumber: pr.Number,
+		Token:    token,
+	})
+	if err != nil {
+		return "", nil, infraErr(err)
+	}
+	root.logger.Info("cloned PR source", "dir", dir)
+	return dir, cleanup, nil
 }
 
 func mapBuildErr(err error) error {
@@ -158,7 +199,7 @@ func postReadyComment(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag
 	root.logger.Info("comment-on-pr: sticky comment posted", "id", id)
 }
 
-func installPreview(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag, namespace, host string) error {
+func installPreview(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag, namespace, host string, createNamespace bool) error {
 	chart, err := helm.LoadChart(root.cfg.ChartPath)
 	if err != nil {
 		return userErr(fmt.Errorf("load chart %s: %w", root.cfg.ChartPath, err))
@@ -178,11 +219,12 @@ func installPreview(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag, 
 	}
 
 	rel, err := mgr.UpgradeOrInstall(ctx, helm.UpgradeOptions{
-		ReleaseName: namespace,
-		Namespace:   namespace,
-		Chart:       chart,
-		Values:      values,
-		Timeout:     root.cfg.Timeout,
+		ReleaseName:     namespace,
+		Namespace:       namespace,
+		Chart:           chart,
+		Values:          values,
+		Timeout:         root.cfg.Timeout,
+		CreateNamespace: createNamespace,
 	})
 	if err != nil {
 		return infraErr(fmt.Errorf("helm upgrade --install: %w", err))

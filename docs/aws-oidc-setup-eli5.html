@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AWS OIDC for deploy-pr, explained like you're five</title>
+<style>
+  :root {
+    --bg: #fbf9f4;
+    --ink: #1c1c1c;
+    --muted: #5a5a5a;
+    --line: #e6e2d6;
+    --accent: #c0392b;
+    --accent-2: #1e6091;
+    --green: #2e7d4f;
+    --yellow: #f1c40f;
+    --code-bg: #f3efe5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    font-size: 17px;
+  }
+  .page {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 56px 28px 96px;
+  }
+  header.hero {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+  header.hero .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  h1 {
+    font-size: 36px;
+    line-height: 1.2;
+    margin: 8px 0 12px;
+    font-weight: 700;
+  }
+  .lede {
+    font-size: 19px;
+    color: var(--muted);
+    margin: 0;
+  }
+  h2 {
+    font-size: 26px;
+    margin-top: 56px;
+    margin-bottom: 12px;
+    line-height: 1.3;
+  }
+  h2 .num {
+    display: inline-block;
+    width: 34px;
+    height: 34px;
+    line-height: 34px;
+    text-align: center;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    font-size: 16px;
+    margin-right: 10px;
+    vertical-align: middle;
+    font-weight: 700;
+  }
+  h3 { font-size: 19px; margin-top: 28px; margin-bottom: 8px; }
+  p { margin: 12px 0; }
+  code, pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: 0.92em; }
+  pre {
+    background: var(--code-bg);
+    border-left: 3px solid var(--accent-2);
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 13.5px;
+    line-height: 1.5;
+    border-radius: 0 6px 6px 0;
+  }
+  pre code { background: none; padding: 0; }
+  .analogy {
+    background: #fff8e1;
+    border: 1px solid #f3deb0;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 22px 0;
+  }
+  .analogy h4 {
+    margin: 0 0 6px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #8a6d1a;
+  }
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: #fdf2f0;
+    padding: 12px 16px;
+    margin: 18px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .callout.good {
+    border-color: var(--green);
+    background: #eef7f1;
+  }
+  .callout.info {
+    border-color: var(--accent-2);
+    background: #eef4f9;
+  }
+  .callout strong { display: block; margin-bottom: 2px; }
+  .figure {
+    margin: 24px 0 12px;
+    text-align: center;
+  }
+  .figure svg { max-width: 100%; height: auto; }
+  .caption {
+    font-size: 13.5px;
+    color: var(--muted);
+    margin-top: 6px;
+    text-align: center;
+    font-style: italic;
+  }
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin: 20px 0;
+  }
+  .card {
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .card h4 {
+    margin: 0 0 6px;
+    font-size: 15px;
+    color: var(--accent-2);
+  }
+  .pill {
+    display: inline-block;
+    background: #ecebe4;
+    color: #444;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+  ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  .toc {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 22px;
+    margin-bottom: 16px;
+  }
+  .toc ol { margin: 6px 0 0; padding-left: 22px; }
+  .toc a { color: var(--accent-2); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  footer {
+    border-top: 1px solid var(--line);
+    margin-top: 56px;
+    padding-top: 18px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  @media (max-width: 640px) {
+    .two-col { grid-template-columns: 1fr; }
+    h1 { font-size: 28px; }
+    .page { padding: 36px 18px 64px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="hero">
+  <div class="eyebrow">deploy-pr · explained like you're five</div>
+  <h1>How GitHub Actions safely uses AWS without storing a single password</h1>
+  <p class="lede">There is a magic trick called <strong>OIDC</strong>. It lets your GitHub workflow walk into your AWS account, do its job, and walk out — without you ever giving it a key. This page explains how, step by step, with pictures.</p>
+</header>
+
+<div class="toc">
+  <strong>What we'll cover</strong>
+  <ol>
+    <li><a href="#big-idea">The big idea (the bouncer story)</a></li>
+    <li><a href="#flow">The whole flow on one page</a></li>
+    <li><a href="#step1">Step 1 — Tell AWS it trusts GitHub</a></li>
+    <li><a href="#step2">Step 2 — Make a role (the costume)</a></li>
+    <li><a href="#step3">Step 3 — Let the role into the cluster</a></li>
+    <li><a href="#step4">Step 4 — Let the role create namespaces</a></li>
+    <li><a href="#step5">Step 5 — Verify it actually works</a></li>
+    <li><a href="#ops">Operational tips</a></li>
+  </ol>
+</div>
+
+<!-- =============================================================== -->
+<h2 id="big-idea"><span class="num">0</span>The big idea</h2>
+
+<p>Imagine your AWS account is a <strong>theme park</strong>. To get inside, you need a wristband. There are two ways to give your friend GitHub a wristband:</p>
+
+<div class="two-col">
+  <div class="card">
+    <span class="pill">The old way</span>
+    <h4>Hand GitHub a permanent wristband</h4>
+    <p style="margin:6px 0;">You store an AWS access key in a GitHub secret. GitHub keeps it forever. If anyone ever leaks that key, a stranger has a free pass to your park.</p>
+  </div>
+  <div class="card">
+    <span class="pill">The OIDC way</span>
+    <h4>Let GitHub ask for a one-day wristband each time</h4>
+    <p style="margin:6px 0;">GitHub shows its own GitHub-issued ID badge at the gate. AWS checks the badge, and if it likes it, hands over a wristband that <strong>self-destructs in ~1 hour</strong>.</p>
+  </div>
+</div>
+
+<div class="analogy">
+  <h4>The bouncer analogy</h4>
+  <p style="margin:0;">OIDC is a bouncer at the front door of AWS. GitHub walks up and says <em>"hi, I'm the workflow for repo OWNER/REPO, running on a pull_request event."</em> The bouncer checks the signature on that statement (GitHub really did sign it), checks the guest list (your trust policy), and only then waves them through. No keys change hands.</p>
+</div>
+
+<!-- =============================================================== -->
+<h2 id="flow"><span class="num">★</span>The whole flow on one page</h2>
+
+<p>Before we get into commands, here's the trip a GitHub Action takes when a PR opens:</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sequence diagram of OIDC flow">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1e6091"/>
+    </marker>
+    <style>
+      .lbl{font:600 13px -apple-system,Segoe UI,sans-serif;fill:#1c1c1c}
+      .sub{font:12px -apple-system,Segoe UI,sans-serif;fill:#5a5a5a}
+      .actor{fill:#fff;stroke:#1e6091;stroke-width:1.5}
+      .lane{stroke:#cdd6df;stroke-width:1;stroke-dasharray:3 4}
+      .msg{stroke:#1e6091;stroke-width:1.5;fill:none}
+      .msglbl{font:12px -apple-system,Segoe UI,sans-serif;fill:#1e6091}
+    </style>
+  </defs>
+
+  <!-- actor headers -->
+  <g>
+    <rect class="actor" x="20"  y="20" width="140" height="40" rx="6"/>
+    <text class="lbl" x="90"  y="45" text-anchor="middle">GitHub Action</text>
+    <rect class="actor" x="220" y="20" width="160" height="40" rx="6"/>
+    <text class="lbl" x="300" y="45" text-anchor="middle">GitHub OIDC issuer</text>
+    <rect class="actor" x="440" y="20" width="140" height="40" rx="6"/>
+    <text class="lbl" x="510" y="45" text-anchor="middle">AWS STS</text>
+    <rect class="actor" x="640" y="20" width="140" height="40" rx="6"/>
+    <text class="lbl" x="710" y="45" text-anchor="middle">ECR + EKS</text>
+  </g>
+
+  <!-- lanes -->
+  <line class="lane" x1="90"  y1="60" x2="90"  y2="340"/>
+  <line class="lane" x1="300" y1="60" x2="300" y2="340"/>
+  <line class="lane" x1="510" y1="60" x2="510" y2="340"/>
+  <line class="lane" x1="710" y1="60" x2="710" y2="340"/>
+
+  <!-- messages -->
+  <g>
+    <line class="msg" x1="90"  y1="95"  x2="296" y2="95"  marker-end="url(#arrow)"/>
+    <text class="msglbl" x="193" y="88" text-anchor="middle">1. Give me an ID token</text>
+
+    <line class="msg" x1="300" y1="135" x2="94"  y2="135" marker-end="url(#arrow)"/>
+    <text class="msglbl" x="197" y="128" text-anchor="middle">2. Signed JWT (sub=repo:OWNER/REPO:pull_request)</text>
+
+    <line class="msg" x1="90"  y1="175" x2="506" y2="175" marker-end="url(#arrow)"/>
+    <text class="msglbl" x="298" y="168" text-anchor="middle">3. AssumeRoleWithWebIdentity (here is my token)</text>
+
+    <line class="msg" x1="510" y1="215" x2="94"  y2="215" marker-end="url(#arrow)"/>
+    <text class="msglbl" x="302" y="208" text-anchor="middle">4. Temporary AWS keys (~1h)</text>
+
+    <line class="msg" x1="90"  y1="265" x2="706" y2="265" marker-end="url(#arrow)"/>
+    <text class="msglbl" x="398" y="258" text-anchor="middle">5. Push image to ECR, talk to EKS</text>
+
+    <line class="msg" x1="710" y1="305" x2="94"  y2="305" marker-end="url(#arrow)"/>
+    <text class="msglbl" x="402" y="298" text-anchor="middle">6. App preview goes live</text>
+  </g>
+</svg>
+</div>
+<p class="caption">Six conversations. No secret ever stored in GitHub.</p>
+
+<div class="callout info">
+  <strong>The two pieces of paperwork</strong>
+  In step 3, AWS asks two questions before handing over keys: <em>"is this token signed by someone I trust?"</em> (that's the OIDC provider from <a href="#step1">step 1</a>) and <em>"does the role allow this exact GitHub workflow to assume it?"</em> (that's the trust policy from <a href="#step2">step 2</a>).
+</div>
+
+<!-- =============================================================== -->
+<h2 id="step1"><span class="num">1</span>Tell AWS it trusts GitHub</h2>
+
+<p>AWS doesn't know GitHub's signature out of the box. You introduce them once, per AWS account, by creating an <strong>OIDC identity provider</strong> entry that points at GitHub's token issuer.</p>
+
+<div class="analogy">
+  <h4>Think of it like…</h4>
+  <p style="margin:0;">Adding GitHub to the address book of trusted ID-issuers your bouncer accepts. After this, the bouncer recognizes any badge GitHub signs — but recognizing the issuer doesn't mean letting them in. That's step 2's job.</p>
+</div>
+
+<pre><code>aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com \
+  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
+</code></pre>
+
+<p>If you already did this for another project, you can skip it. Check with <code>aws iam list-open-id-connect-providers</code>.</p>
+
+<!-- =============================================================== -->
+<h2 id="step2"><span class="num">2</span>Make a role (the costume)</h2>
+
+<p>A <strong>role</strong> in AWS is like a costume hanging on a rack. Anyone who matches the rules can put it on, and while they wear it, they get the powers stitched into it.</p>
+
+<p>Two pieces of paper come with every costume:</p>
+
+<div class="two-col">
+  <div class="card">
+    <h4>🔐 Trust policy</h4>
+    <p style="margin:6px 0;"><strong>Who is allowed to wear this costume?</strong></p>
+    <p style="margin:6px 0;">In our case: only GitHub Actions, running in <em>this specific repo</em>, on a <em>pull_request</em> event.</p>
+  </div>
+  <div class="card">
+    <h4>⚡ Permission policy</h4>
+    <p style="margin:6px 0;"><strong>What powers does the costume give you?</strong></p>
+    <p style="margin:6px 0;">In our case: push images to one ECR repo, describe one EKS cluster. That's it.</p>
+  </div>
+</div>
+
+<div class="figure">
+<svg viewBox="0 0 720 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Trust vs permission policy diagram">
+  <defs>
+    <style>
+      .box{fill:#fff;stroke:#1e6091;stroke-width:1.5;rx:10}
+      .ttl{font:700 14px -apple-system,sans-serif;fill:#1e6091}
+      .bod{font:12px -apple-system,sans-serif;fill:#1c1c1c}
+      .arr{stroke:#c0392b;stroke-width:2;fill:none;marker-end:url(#arr2)}
+    </style>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/>
+    </marker>
+  </defs>
+
+  <!-- requester -->
+  <rect class="box" x="20" y="80" width="150" height="60" rx="10"/>
+  <text class="ttl" x="95" y="105" text-anchor="middle">GitHub workflow</text>
+  <text class="bod" x="95" y="125" text-anchor="middle">repo:OWNER/REPO</text>
+
+  <!-- trust policy gate -->
+  <rect class="box" x="220" y="20" width="200" height="180" rx="10" style="fill:#fdf2f0;stroke:#c0392b"/>
+  <text class="ttl" x="320" y="45" text-anchor="middle" style="fill:#c0392b">Trust policy (gate)</text>
+  <text class="bod" x="320" y="75" text-anchor="middle">Does the JWT's <tspan font-family="monospace">sub</tspan></text>
+  <text class="bod" x="320" y="92" text-anchor="middle">match the allowed pattern?</text>
+  <text class="bod" x="320" y="125" text-anchor="middle" font-family="monospace" font-size="11">repo:OWNER/REPO:pull_request</text>
+  <text class="bod" x="320" y="170" text-anchor="middle" style="fill:#5a5a5a;font-style:italic">"yes → put on the costume"</text>
+
+  <!-- permissions -->
+  <rect class="box" x="470" y="20" width="230" height="180" rx="10" style="fill:#eef4f9"/>
+  <text class="ttl" x="585" y="45" text-anchor="middle">Permission policy (powers)</text>
+  <text class="bod" x="585" y="75" text-anchor="middle">✓ ecr:GetAuthorizationToken</text>
+  <text class="bod" x="585" y="95" text-anchor="middle">✓ ecr:PutImage on /myapp</text>
+  <text class="bod" x="585" y="115" text-anchor="middle">✓ eks:DescribeCluster</text>
+  <text class="bod" x="585" y="145" text-anchor="middle">✗ iam:* (none!)</text>
+  <text class="bod" x="585" y="165" text-anchor="middle">✗ kms:* (none!)</text>
+
+  <!-- arrows -->
+  <line class="arr" x1="170" y1="110" x2="216" y2="110"/>
+  <line class="arr" x1="420" y1="110" x2="466" y2="110"/>
+</svg>
+</div>
+<p class="caption">Trust policy = the door. Permission policy = what's inside the room.</p>
+
+<div class="callout">
+  <strong>⚠️  Don't wildcard the subject</strong>
+  A trust policy that allows <code>repo:owner/*:*</code> means <em>any workflow in any of your repos</em> — including a fork that someone opens a malicious PR from — can assume the role. Pin it to one repo and the event you actually want (<code>pull_request</code>, <code>push</code> on <code>main</code>, etc.).
+</div>
+
+<h3>What the two policies look like</h3>
+<pre><code>// trust-policy.json — who can wear the costume
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "Federated": "arn:aws:iam::000000000000:oidc-provider/token.actions.githubusercontent.com" },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
+      "StringLike":   { "token.actions.githubusercontent.com:sub": "repo:OWNER/REPO:pull_request" }
+    }
+  }]
+}
+</code></pre>
+
+<pre><code>// deploy-pr-policy.json — what the costume can do
+// (ECR push on one repo, EKS describe on one cluster, nothing else)
+</code></pre>
+
+<pre><code>aws iam create-role \
+  --role-name github-deploy-pr \
+  --assume-role-policy-document file://trust-policy.json
+
+aws iam put-role-policy \
+  --role-name github-deploy-pr \
+  --policy-name deploy-pr-permissions \
+  --policy-document file://deploy-pr-policy.json
+</code></pre>
+
+<p>The ARN that comes out — something like <code>arn:aws:iam::000000000000:role/github-deploy-pr</code> — is what you paste into your workflow's <code>AWS_ROLE_ARN</code>.</p>
+
+<!-- =============================================================== -->
+<h2 id="step3"><span class="num">3</span>Let the role into the cluster</h2>
+
+<p>Surprise twist: being allowed to <em>describe</em> an EKS cluster isn't the same as being allowed to <em>do things</em> inside it. Kubernetes has its <strong>own</strong> permission system, sitting behind AWS's.</p>
+
+<div class="figure">
+<svg viewBox="0 0 760 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Two layers: AWS IAM and Kubernetes RBAC">
+  <defs>
+    <style>
+      .b{fill:#fff;stroke:#888;stroke-width:1.2}
+      .t{font:700 14px -apple-system,sans-serif;fill:#1c1c1c}
+      .s{font:12px -apple-system,sans-serif;fill:#5a5a5a}
+    </style>
+  </defs>
+
+  <!-- outer: building -->
+  <rect class="b" x="40" y="20" width="680" height="180" rx="10" style="fill:#fff8e1;stroke:#c0392b"/>
+  <text class="t" x="60" y="46">AWS account (the building)</text>
+  <text class="s" x="60" y="64">IAM lets you reach the front door of the EKS cluster.</text>
+
+  <!-- inner: cluster -->
+  <rect class="b" x="80" y="80" width="600" height="100" rx="10" style="fill:#eef7f1;stroke:#2e7d4f"/>
+  <text class="t" x="100" y="106">EKS cluster (rooms inside)</text>
+  <text class="s" x="100" y="124">Kubernetes RBAC decides which rooms you can enter.</text>
+
+  <!-- principal -->
+  <rect class="b" x="100" y="140" width="140" height="30" rx="6" style="fill:#fff"/>
+  <text class="s" x="170" y="159" text-anchor="middle">role/github-deploy-pr</text>
+
+  <text class="s" x="260" y="159">— knocks on door (IAM ok)</text>
+  <text class="s" x="260" y="175" style="fill:#c0392b">— but can it open Room 3? (RBAC decides)</text>
+</svg>
+</div>
+<p class="caption">AWS IAM gets you through the front door. Kubernetes RBAC decides which rooms inside are yours.</p>
+
+<p>To bridge the two, you create an <strong>EKS access entry</strong> — a row that says "this AWS principal maps to this Kubernetes identity" — and associate a Kubernetes policy with it:</p>
+
+<pre><code>aws eks create-access-entry \
+  --cluster-name dev-cluster \
+  --principal-arn arn:aws:iam::000000000000:role/github-deploy-pr \
+  --type STANDARD
+
+aws eks associate-access-policy \
+  --cluster-name dev-cluster \
+  --principal-arn arn:aws:iam::000000000000:role/github-deploy-pr \
+  --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy \
+  --access-scope type=cluster
+</code></pre>
+
+<div class="callout">
+  <strong>Quick &amp; loose vs. production</strong>
+  <code>AmazonEKSEditPolicy</code> at <code>type=cluster</code> scope is the easy starting point — it lets the role edit basically everything cluster-wide. For real production, swap that scope to <code>type=namespace,namespaces=pr-*</code> so the role can only touch preview namespaces. But that tighter scope has one gotcha — it can't <em>create</em> namespaces. That's what step 4 fixes.
+</div>
+
+<!-- =============================================================== -->
+<h2 id="step4"><span class="num">4</span>Let the role create namespaces</h2>
+
+<div class="callout info">
+  <strong>First time wondering why this step exists?</strong>
+  Pushing images, creating Deployments, mounting Secrets — none of those need extra work. But <em>creating the namespace itself</em> does. The reason is structural, not arbitrary: namespaces are <strong>cluster-scoped</strong> resources, so they can't be sandboxed to <code>pr-*</code> by RBAC alone. See <a href="kubernetes-namespaces-eli5.html">kubernetes-namespaces-eli5.html</a> for the full mental model.
+</div>
+
+<p><code>deploy-pr up</code> defaults to <code>--create-namespace</code>, which asks Helm to create a fresh <code>pr-&lt;N&gt;</code> namespace for each PR. Namespaces are <em>cluster-scoped</em> resources, so a strictly namespace-scoped principal will hit:</p>
+
+<pre><code>namespaces is forbidden: User "..." cannot create resource "namespaces"
+  in API group "" at the cluster scope
+</code></pre>
+
+<p>You have two options. Pick one based on how paranoid your environment is:</p>
+
+<div class="two-col">
+  <div class="card">
+    <span class="pill">Path A · easy</span>
+    <h4>Grant cluster-scoped namespace verbs</h4>
+    <p style="margin:6px 0;">Map the principal to a Kubernetes group, then bind a ClusterRole that allows <code>create/get/list/patch/delete</code> on <code>namespaces</code>. Keep <code>--create-namespace</code> on. Works for laptops and CI alike.</p>
+  </div>
+  <div class="card">
+    <span class="pill">Path B · strict</span>
+    <h4>Pre-create namespaces, then run with <code>--create-namespace=false</code></h4>
+    <p style="margin:6px 0;">An admin (or a separate controller) creates <code>pr-&lt;N&gt;</code> ahead of time. The role stays strictly namespace-scoped — no cluster verbs at all. Tighter, but you need something to create the namespace first.</p>
+  </div>
+</div>
+
+<h3>Path A in one snippet</h3>
+<pre><code>aws eks create-access-entry \
+  --cluster-name dev-cluster \
+  --principal-arn arn:aws:iam::000000000000:role/github-deploy-pr \
+  --kubernetes-groups deploy-pr \
+  --type STANDARD
+</code></pre>
+
+<pre><code># deploy-pr-rbac.yaml — applied by a cluster admin once
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: { name: deploy-pr-namespace-manager }
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["create", "get", "list", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: deploy-pr-namespace-manager }
+subjects:
+  - { kind: Group, name: deploy-pr, apiGroup: rbac.authorization.k8s.io }
+roleRef:
+  kind: ClusterRole
+  name: deploy-pr-namespace-manager
+  apiGroup: rbac.authorization.k8s.io
+</code></pre>
+
+<div class="callout">
+  <strong>Caveat about RBAC</strong>
+  Kubernetes RBAC can't restrict <code>create</code> by name pattern. This binding grants creation of <em>any</em> namespace, not just <code>pr-*</code>. If that matters, layer a <strong>ValidatingAdmissionPolicy</strong> (or Kyverno/OPA) that rejects creates from this group whose name doesn't match <code>pr-*</code>.
+</div>
+
+<h3>Path B in one snippet</h3>
+<pre><code>kubectl create namespace pr-123
+kubectl label namespace pr-123 app.kubernetes.io/managed-by=deploy-pr
+
+# Then in CI:
+deploy-pr up 123 --create-namespace=false
+</code></pre>
+
+<!-- =============================================================== -->
+<h2 id="step5"><span class="num">5</span>Verify it actually works</h2>
+
+<p>Open a draft PR. Watch the <strong>PR preview</strong> workflow in the Actions tab. The first run will fail in <em>interesting</em> places — missing wildcard DNS, ingress class mismatch, image-pull secret missing. That's normal. The CLI's logs name the failing system. Fix forward, don't rip and replace.</p>
+
+<div class="callout good">
+  <strong>You're done when…</strong>
+  A PR opens → workflow runs → temp credentials get assumed → image gets pushed to ECR → Helm install lands in <code>pr-&lt;N&gt;</code> → the bot posts a preview URL on the PR. No long-lived AWS keys exist anywhere in your repo settings.
+</div>
+
+<!-- =============================================================== -->
+<h2 id="ops"><span class="num">★</span>Operational tips</h2>
+
+<ul>
+  <li><strong>ECR storage cost.</strong> Every PR build pushes a new image. Without a lifecycle policy your ECR repo grows forever. Set one to expire untagged images after 30 days, and to keep only the latest N tags per PR.</li>
+  <li><strong>Orphan namespaces.</strong> If the <em>close</em> workflow fails to run (runner queue full, branch deleted weirdly), the namespace gets stuck. <code>deploy-pr list</code> will flag it as <code>orphaned</code>. Run <code>deploy-pr down &lt;PR&gt;</code> from a laptop to clean it up.</li>
+  <li><strong>Drift between laptop and CI.</strong> The same binary runs in both places, so a developer's local <code>deploy-pr up &lt;PR&gt;</code> can overwrite the CI-deployed release for that PR. For ephemeral previews that's fine — if it isn't, scope IAM so laptop credentials lack push privileges.</li>
+</ul>
+
+<footer>
+  Companion to <code>docs/aws-oidc-setup.md</code>. For exact commands and the canonical wording, the markdown is the source of truth — this page exists to give you the mental model.
+</footer>
+
+</div>
+</body>
+</html>

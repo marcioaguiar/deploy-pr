@@ -29,6 +29,33 @@ type Manager struct {
 	log       *slog.Logger
 }
 
+// kubeUnreachableHint is the actionable message appended to errors that
+// indicate client-go could not reach the API server. The substring is also
+// used as a guard to avoid double-annotating.
+const kubeUnreachableHint = "hint: no usable kubeconfig was found. Set KUBECONFIG, " +
+	"or run `aws eks update-kubeconfig --name <cluster> --region <region>` " +
+	"to populate ~/.kube/config, then retry."
+
+// annotateUnreachable adds an actionable hint when err indicates the Kubernetes
+// API server could not be reached. The default symptom is client-go falling
+// back to http://localhost:8080 when no kubeconfig is loaded, which surfaces as
+// Helm's "Kubernetes cluster unreachable" wrapper. Other errors pass through.
+func annotateUnreachable(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, kubeUnreachableHint) {
+		return err
+	}
+	if !strings.Contains(msg, "Kubernetes cluster unreachable") &&
+		!strings.Contains(msg, "127.0.0.1:8080") &&
+		!strings.Contains(msg, "localhost:8080") {
+		return err
+	}
+	return fmt.Errorf("%w\n\n%s", err, kubeUnreachableHint)
+}
+
 // NewManager builds a Manager scoped to namespace using the user's standard
 // kubeconfig precedence (KUBECONFIG env, then ~/.kube/config). The same
 // settings are used for any subsequent cluster calls.
@@ -47,7 +74,7 @@ func NewManager(namespace string, logger *slog.Logger) (*Manager, error) {
 
 	cfg := new(action.Configuration)
 	if err := cfg.Init(settings.RESTClientGetter(), settings.Namespace(), "secret", debug); err != nil {
-		return nil, fmt.Errorf("helm config init: %w", err)
+		return nil, annotateUnreachable(fmt.Errorf("helm config init: %w", err))
 	}
 	return &Manager{
 		settings:  settings,
@@ -64,12 +91,16 @@ type UpgradeOptions struct {
 	Chart       *chart.Chart
 	Values      map[string]any
 	Timeout     time.Duration
+	// CreateNamespace asks Helm to create the target namespace on first
+	// install. Requires cluster-scoped "create namespaces" RBAC on the
+	// caller's principal; set false when an admin pre-creates pr-<N>.
+	CreateNamespace bool
 }
 
 // UpgradeOrInstall is the idempotent entry point: if the release does not
-// exist, it runs Install with --create-namespace; otherwise it runs Upgrade.
-// Wait+WaitForJobs are on by default so callers can trust that a successful
-// return means the rollout actually came up.
+// exist, it runs Install (creating the namespace when CreateNamespace is set);
+// otherwise it runs Upgrade. Wait+WaitForJobs are on by default so callers
+// can trust that a successful return means the rollout actually came up.
 func (m *Manager) UpgradeOrInstall(ctx context.Context, opts UpgradeOptions) (*release.Release, error) {
 	if opts.ReleaseName == "" || opts.Namespace == "" || opts.Chart == nil {
 		return nil, errors.New("ReleaseName, Namespace, and Chart are required")
@@ -83,17 +114,18 @@ func (m *Manager) UpgradeOrInstall(ctx context.Context, opts UpgradeOptions) (*r
 	hist.Max = 1
 	if _, err := hist.Run(opts.ReleaseName); err != nil {
 		if !errors.Is(err, driver.ErrReleaseNotFound) {
-			return nil, fmt.Errorf("history %s: %w", opts.ReleaseName, err)
+			return nil, annotateUnreachable(fmt.Errorf("history %s: %w", opts.ReleaseName, err))
 		}
 		install := action.NewInstall(m.config)
 		install.ReleaseName = opts.ReleaseName
 		install.Namespace = opts.Namespace
-		install.CreateNamespace = true
+		install.CreateNamespace = opts.CreateNamespace
 		install.Wait = true
 		install.WaitForJobs = true
 		install.Timeout = timeout
 		m.log.Info("helm install", "release", opts.ReleaseName, "namespace", opts.Namespace)
-		return install.RunWithContext(ctx, opts.Chart, opts.Values)
+		rel, err := install.RunWithContext(ctx, opts.Chart, opts.Values)
+		return rel, annotateUnreachable(err)
 	}
 
 	upgrade := action.NewUpgrade(m.config)
@@ -102,7 +134,8 @@ func (m *Manager) UpgradeOrInstall(ctx context.Context, opts UpgradeOptions) (*r
 	upgrade.WaitForJobs = true
 	upgrade.Timeout = timeout
 	m.log.Info("helm upgrade", "release", opts.ReleaseName, "namespace", opts.Namespace)
-	return upgrade.RunWithContext(ctx, opts.ReleaseName, opts.Chart, opts.Values)
+	rel, err := upgrade.RunWithContext(ctx, opts.ReleaseName, opts.Chart, opts.Values)
+	return rel, annotateUnreachable(err)
 }
 
 // Uninstall removes the named release. A missing release is treated as a no-op
@@ -115,7 +148,7 @@ func (m *Manager) Uninstall(releaseName string) error {
 			m.log.Info("release not found, nothing to uninstall", "release", releaseName)
 			return nil
 		}
-		return fmt.Errorf("uninstall %s: %w", releaseName, err)
+		return annotateUnreachable(fmt.Errorf("uninstall %s: %w", releaseName, err))
 	}
 	return nil
 }
@@ -133,14 +166,14 @@ func ListReleasesByNamespacePrefix(prefix string, logger *slog.Logger) ([]*relea
 	}
 	cfg := new(action.Configuration)
 	if err := cfg.Init(settings.RESTClientGetter(), "", "secret", debug); err != nil {
-		return nil, fmt.Errorf("helm config init: %w", err)
+		return nil, annotateUnreachable(fmt.Errorf("helm config init: %w", err))
 	}
 	list := action.NewList(cfg)
 	list.AllNamespaces = true
 	list.All = true
 	rels, err := list.Run()
 	if err != nil {
-		return nil, fmt.Errorf("helm list: %w", err)
+		return nil, annotateUnreachable(fmt.Errorf("helm list: %w", err))
 	}
 	out := make([]*release.Release, 0, len(rels))
 	for _, r := range rels {
@@ -158,15 +191,15 @@ func ListNamespacesWithPrefix(ctx context.Context, prefix string) ([]string, err
 	settings := cli.New()
 	restCfg, err := settings.RESTClientGetter().ToRESTConfig()
 	if err != nil {
-		return nil, fmt.Errorf("rest config: %w", err)
+		return nil, annotateUnreachable(fmt.Errorf("rest config: %w", err))
 	}
 	cs, err := kubernetes.NewForConfig(restCfg)
 	if err != nil {
-		return nil, fmt.Errorf("kube client: %w", err)
+		return nil, annotateUnreachable(fmt.Errorf("kube client: %w", err))
 	}
 	list, err := cs.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("list namespaces: %w", err)
+		return nil, annotateUnreachable(fmt.Errorf("list namespaces: %w", err))
 	}
 	out := []string{}
 	for _, ns := range list.Items {
@@ -183,17 +216,17 @@ func ListNamespacesWithPrefix(ctx context.Context, prefix string) ([]string, err
 func (m *Manager) DeleteNamespace(ctx context.Context, name string) error {
 	restCfg, err := m.settings.RESTClientGetter().ToRESTConfig()
 	if err != nil {
-		return fmt.Errorf("rest config: %w", err)
+		return annotateUnreachable(fmt.Errorf("rest config: %w", err))
 	}
 	cs, err := kubernetes.NewForConfig(restCfg)
 	if err != nil {
-		return fmt.Errorf("kube client: %w", err)
+		return annotateUnreachable(fmt.Errorf("kube client: %w", err))
 	}
 	if err := cs.CoreV1().Namespaces().Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
-		return fmt.Errorf("delete namespace %s: %w", name, err)
+		return annotateUnreachable(fmt.Errorf("delete namespace %s: %w", name, err))
 	}
 	return nil
 }

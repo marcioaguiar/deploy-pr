@@ -95,6 +95,8 @@ The Helm chart at [`charts/preview`](charts/preview) renders Namespace+Deploymen
 
 **`helm upgrade --install: ... timeout waiting for ready state`** — `up` fails if pods don't reach Ready within `--timeout` (default 10m). Inspect with `kubectl -n pr-<N> describe pod`.
 
+**`namespaces is forbidden: ... cannot create resource "namespaces" ... at the cluster scope`** — the principal lacks cluster-scoped `create namespaces` RBAC. Either grant it (see [`docs/aws-oidc-setup.md`](docs/aws-oidc-setup.md) §4 Path A) or pre-create `pr-<N>` and pass `--create-namespace=false` (Path B).
+
 **`deploy-pr list` shows status `orphaned`** — namespace exists but no Helm release. The CI `down` job likely failed; clean up with `deploy-pr down <PR>` from a laptop.
 
 **Preview URL doesn't resolve** — confirm `*.preview.<domain>` has a wildcard DNS record, ExternalDNS is running, and the ingress class matches your controller.

@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Why "create namespaces" is a privileged verb — threat models, explained</title>
+<style>
+  :root {
+    --bg: #fbf9f4;
+    --ink: #1c1c1c;
+    --muted: #5a5a5a;
+    --line: #e6e2d6;
+    --accent: #c0392b;
+    --accent-2: #1e6091;
+    --green: #2e7d4f;
+    --yellow: #f1c40f;
+    --code-bg: #f3efe5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    font-size: 17px;
+  }
+  .page {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 56px 28px 96px;
+  }
+  header.hero {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+  header.hero .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  h1 {
+    font-size: 36px;
+    line-height: 1.2;
+    margin: 8px 0 12px;
+    font-weight: 700;
+  }
+  .lede {
+    font-size: 19px;
+    color: var(--muted);
+    margin: 0;
+  }
+  h2 {
+    font-size: 26px;
+    margin-top: 56px;
+    margin-bottom: 12px;
+    line-height: 1.3;
+  }
+  h2 .num {
+    display: inline-block;
+    width: 34px;
+    height: 34px;
+    line-height: 34px;
+    text-align: center;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    font-size: 16px;
+    margin-right: 10px;
+    vertical-align: middle;
+    font-weight: 700;
+  }
+  h3 { font-size: 19px; margin-top: 28px; margin-bottom: 8px; }
+  p { margin: 12px 0; }
+  code, pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: 0.92em; }
+  pre {
+    background: var(--code-bg);
+    border-left: 3px solid var(--accent-2);
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 13.5px;
+    line-height: 1.5;
+    border-radius: 0 6px 6px 0;
+  }
+  pre code { background: none; padding: 0; }
+  .analogy {
+    background: #fff8e1;
+    border: 1px solid #f3deb0;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 22px 0;
+  }
+  .analogy h4 {
+    margin: 0 0 6px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #8a6d1a;
+  }
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: #fdf2f0;
+    padding: 12px 16px;
+    margin: 18px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .callout.good {
+    border-color: var(--green);
+    background: #eef7f1;
+  }
+  .callout.info {
+    border-color: var(--accent-2);
+    background: #eef4f9;
+  }
+  .callout strong { display: block; margin-bottom: 2px; }
+  .figure {
+    margin: 24px 0 12px;
+    text-align: center;
+  }
+  .figure svg { max-width: 100%; height: auto; }
+  .caption {
+    font-size: 13.5px;
+    color: var(--muted);
+    margin-top: 6px;
+    text-align: center;
+    font-style: italic;
+  }
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin: 20px 0;
+  }
+  .card {
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .card h4 {
+    margin: 0 0 6px;
+    font-size: 15px;
+    color: var(--accent-2);
+  }
+  .pill {
+    display: inline-block;
+    background: #ecebe4;
+    color: #444;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+  .pill.low { background: #eef7f1; color: #2e7d4f; }
+  .pill.med { background: #fff8e1; color: #8a6d1a; }
+  .pill.high { background: #fdf2f0; color: #c0392b; }
+  .pill.critical { background: #c0392b; color: white; }
+  ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  .toc {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 22px;
+    margin-bottom: 16px;
+  }
+  .toc ol { margin: 6px 0 0; padding-left: 22px; }
+  .toc a { color: var(--accent-2); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  table.matrix {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0;
+    font-size: 14.5px;
+  }
+  table.matrix th, table.matrix td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  table.matrix th {
+    background: #fff;
+    color: var(--accent-2);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  table.matrix tr:last-child td { border-bottom: 0; }
+  .threat-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 28px 0 4px;
+    flex-wrap: wrap;
+  }
+  .threat-header h3 { margin: 0; }
+  footer {
+    border-top: 1px solid var(--line);
+    margin-top: 56px;
+    padding-top: 18px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  @media (max-width: 640px) {
+    .two-col { grid-template-columns: 1fr; }
+    h1 { font-size: 28px; }
+    .page { padding: 36px 18px 64px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="hero">
+  <div class="eyebrow">deploy-pr · explained like you're five</div>
+  <h1>Why "create namespaces" is a privileged verb — through four threat models</h1>
+  <p class="lede">The risk isn't that creating a folder is dangerous. The risk is that the verb <code>create namespaces</code> is <strong>unbounded by design</strong> — and an unbounded capability has very different consequences depending on who holds it. Same verb, four threat models, four different answers.</p>
+</header>
+
+<div class="toc">
+  <strong>What we'll cover</strong>
+  <ol>
+    <li><a href="#kernel">The kernel of the risk: capability vs threat model</a></li>
+    <li><a href="#capability">What the verb actually grants you</a></li>
+    <li><a href="#tm1">Threat model 1 — your laptop, your dev cluster</a></li>
+    <li><a href="#tm2">Threat model 2 — your laptop, a shared cluster</a></li>
+    <li><a href="#tm3">Threat model 3 — a cluster with namespace-bound admission controllers</a></li>
+    <li><a href="#tm4">Threat model 4 — GitHub Actions on a <code>pull_request</code> trigger</a></li>
+    <li><a href="#matrix">Decision matrix — when to grant the verb, when to refuse</a></li>
+  </ol>
+</div>
+
+<!-- =============================================================== -->
+<h2 id="kernel"><span class="num">0</span>The kernel of the risk</h2>
+
+<p>People often ask "is granting <code>create namespaces</code> dangerous?" That's the wrong question. The right one is: <strong>"who holds the credential, and what's the worst thing that credential can be coerced into doing?"</strong></p>
+
+<div class="analogy">
+  <h4>Analogy</h4>
+  <p style="margin:0;">A master key to a building is exactly as risky as the person carrying it. The key itself is just brass. The risk is the combination of (a) what doors it opens, (b) who has it, and (c) how easily it can be taken or coerced. A trusted janitor with the master key is fine. A janitor whose pocket gets picked nightly is a problem. The same key, two completely different risk profiles.</p>
+</div>
+
+<p>The same verb sits at vastly different points on the risk curve depending on context. Sections §3–§6 walk through four of those contexts, in increasing order of risk.</p>
+
+<!-- =============================================================== -->
+<h2 id="capability"><span class="num">1</span>What the verb actually grants</h2>
+
+<p>Before the threat models, the capability needs to be clear. From <a href="kubernetes-namespaces-eli5.html#scoped">the namespaces explainer §4</a>: Kubernetes RBAC cannot pre-filter <code>create</code> by resource name. So this rule:</p>
+
+<pre><code>apiGroups: [""]
+resources: ["namespaces"]
+verbs:     ["create"]</code></pre>
+
+<p>…is equivalent to <strong>"can create a namespace with any name whatsoever"</strong>. Concretely, a holder of this verb can create:</p>
+
+<div class="two-col">
+  <div class="card">
+    <h4>Expected names</h4>
+    <ul style="margin:6px 0;">
+      <li><code>pr-123</code>, <code>pr-456</code> — what you actually wanted</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Unexpected names</h4>
+    <ul style="margin:6px 0;">
+      <li><code>prod</code>, <code>staging</code>, <code>payments</code> — collisions with real workloads</li>
+      <li><code>kube-system-shadow</code>, <code>kube-public-2</code> — names that controllers may treat specially</li>
+      <li><code>default</code> if it was previously deleted</li>
+      <li>10,000 namespaces in a loop — denial of service via control-plane load</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout info">
+  <strong>You can put a guardrail on top — but RBAC isn't it</strong>
+  A <code>ValidatingAdmissionPolicy</code>, Kyverno, OPA Gatekeeper, or a mutating webhook <em>can</em> enforce "namespace names must match <code>pr-*</code>" at admission time. That guardrail is what turns an unbounded RBAC verb into a bounded effective capability. Without it, <code>create namespaces</code> is intrinsically global.
+</div>
+
+<!-- =============================================================== -->
+<h2 id="tm1"><span class="num">2</span>Threat model 1 — your laptop, your own dev cluster</h2>
+
+<div class="threat-header">
+  <span class="pill low">Risk: very low</span>
+  <span class="pill">Recommended: grant freely</span>
+</div>
+
+<p>You're the only principal. The cluster is disposable. The "attacker" is your own typo. The blast radius of misuse is "I deleted a namespace I didn't mean to" — which is what <code>kubectl create</code> is for, in reverse.</p>
+
+<p>In this world, <code>cluster-admin</code> on your laptop is fine, and <code>create namespaces</code> is a non-event. This is why most local dev clusters (kind, minikube, k3d) hand out admin credentials by default and nobody complains.</p>
+
+<div class="callout good">
+  <strong>Why <code>deploy-pr up</code> from your laptop "just works"</strong>
+  Your local IAM user is almost certainly mapped to a broad EKS access policy (commonly <code>AmazonEKSClusterAdminPolicy</code>), which carries <code>create namespaces</code> implicitly. You never had to think about it because the verb came as part of a bundle you were already trusted with.
+</div>
+
+<!-- =============================================================== -->
+<h2 id="tm2"><span class="num">3</span>Threat model 2 — your laptop, a shared cluster</h2>
+
+<div class="threat-header">
+  <span class="pill med">Risk: moderate</span>
+  <span class="pill">Recommended: grant, but pair with admission policy</span>
+</div>
+
+<p>Now your laptop credential is one of many that touch the same cluster. Other teams have <code>prod</code>, <code>payments</code>, <code>billing</code> namespaces. The cluster has shared infrastructure controllers watching for new namespaces. Three concrete risks emerge:</p>
+
+<div class="two-col">
+  <div class="card">
+    <h4>Blast radius if your laptop is compromised</h4>
+    <p style="margin:6px 0;">A stolen kubeconfig with <code>create namespaces</code> + cluster-wide workload verbs lets an attacker plant workloads <em>anywhere</em> in the cluster — not just in <code>pr-*</code>. They create <code>pr-attacker</code>, deploy a crypto miner, and your <code>deploy-pr list</code> command (which filters by the <code>managed-by=deploy-pr</code> label) won't even surface it. The pods still run, the bill still accrues.</p>
+  </div>
+  <div class="card">
+    <h4>Accidental collision with shared infra</h4>
+    <p style="margin:6px 0;">A typo like <code>kube-systen</code> can confuse cluster controllers in subtle ways. Recreating <code>default</code> after someone deleted it (with non-standard configuration) can break service-account injection for the whole cluster. These aren't malicious — but the blast radius of "oops" scales with how many other tenants exist.</p>
+  </div>
+  <div class="card">
+    <h4>Resource and cost amplification</h4>
+    <p style="margin:6px 0;">Every namespace creates default ServiceAccounts, optionally default Secrets, and triggers re-evaluation of every cluster-wide controller's namespace watch. A leaked credential running <code>for i in {1..10000}; do kubectl create ns x-$i; done</code> is a control-plane DoS vector — etcd writes, controller queues, audit log churn.</p>
+  </div>
+  <div class="card">
+    <h4>Audit trail noise</h4>
+    <p style="margin:6px 0;">When 20 developers share a cluster and all hold <code>create namespaces</code> via their personal IAM users, the audit log for "who created <code>weird-namespace-xyz</code>?" is fine — but the audit log for "who has historically been <em>able</em> to do this?" is "everyone." That makes post-incident scoping harder.</p>
+  </div>
+</div>
+
+<div class="callout">
+  <strong>Mitigation</strong>
+  Keep the verb, but layer an admission policy that restricts namespace <em>names</em> per principal or per group. E.g. "principals in group <code>deploy-pr</code> may only create namespaces matching <code>pr-*</code>." Kubernetes RBAC can't do this; <code>ValidatingAdmissionPolicy</code> (1.30+), Kyverno, or OPA Gatekeeper can.
+</div>
+
+<!-- =============================================================== -->
+<h2 id="tm3"><span class="num">4</span>Threat model 3 — a cluster with namespace-bound admission controllers</h2>
+
+<div class="threat-header">
+  <span class="pill high">Risk: high (privilege escalation)</span>
+  <span class="pill">Recommended: never grant unconditionally</span>
+</div>
+
+<p>This is where the risk crosses from "annoying" to "actual security incident." Many production clusters layer <strong>mutating admission webhooks</strong> that fire on namespace creation. Common patterns:</p>
+
+<ul>
+  <li>Auto-attach a default <code>ResourceQuota</code> and <code>LimitRange</code>.</li>
+  <li>Auto-attach a default <code>NetworkPolicy</code>.</li>
+  <li><strong>Auto-bind the namespace's creator to an admin <code>RoleBinding</code> inside that namespace.</strong></li>
+</ul>
+
+<p>That last one — common in self-service-namespace controllers like <em>Capsule</em>, <em>Hierarchical Namespace Controller</em>, <em>vcluster</em>, or homegrown operators — turns <code>create namespaces</code> into <strong>create your own tenancy and become its admin</strong>. Which means any narrower RBAC restriction on <code>pr-*</code> is bypassable: just create <code>evil-1</code> and you're admin there.</p>
+
+<div class="figure">
+<svg viewBox="0 0 760 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Privilege escalation diagram: create-namespace plus auto-admin-binding equals full tenancy">
+  <defs>
+    <marker id="esc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/>
+    </marker>
+    <style>
+      .princ{fill:#fff;stroke:#1e6091;stroke-width:1.5}
+      .ns{fill:#eef7f1;stroke:#2e7d4f;stroke-width:1.2}
+      .nsbad{fill:#fdf2f0;stroke:#c0392b;stroke-width:1.5}
+      .wh{fill:#fff8e1;stroke:#f1c40f;stroke-width:1.5}
+      .ttl{font:700 13px -apple-system,sans-serif;fill:#1c1c1c}
+      .sub{font:11px -apple-system,sans-serif;fill:#5a5a5a}
+      .lbl{font:600 11px ui-monospace,Menlo,monospace;fill:#1c1c1c}
+      .arr{stroke:#c0392b;stroke-width:2;fill:none}
+      .arrok{stroke:#2e7d4f;stroke-width:2;fill:none}
+      .step{font:700 12px -apple-system,sans-serif;fill:#c0392b}
+    </style>
+  </defs>
+
+  <!-- principal -->
+  <rect class="princ" x="20" y="20" width="180" height="60" rx="8"/>
+  <text class="ttl" x="110" y="42" text-anchor="middle">Compromised principal</text>
+  <text class="sub" x="110" y="60" text-anchor="middle">scoped to <tspan font-family="monospace">pr-*</tspan></text>
+  <text class="sub" x="110" y="74" text-anchor="middle">+ <tspan font-family="monospace">create namespaces</tspan></text>
+
+  <!-- intended namespace -->
+  <rect class="ns" x="280" y="20" width="180" height="60" rx="8"/>
+  <text class="ttl" x="370" y="42" text-anchor="middle">pr-123 (intended)</text>
+  <text class="sub" x="370" y="60" text-anchor="middle">bounded by RBAC</text>
+  <text class="sub" x="370" y="74" text-anchor="middle">no escalation here</text>
+
+  <!-- arrow ok -->
+  <line class="arrok" x1="200" y1="50" x2="276" y2="50" marker-end="url(#esc)" style="stroke:#2e7d4f"/>
+
+  <!-- step 1 -->
+  <text class="step" x="20" y="130">Step 1 — pick a name outside <tspan font-family="monospace">pr-*</tspan></text>
+  <rect class="nsbad" x="20" y="145" width="200" height="60" rx="8"/>
+  <text class="ttl" x="120" y="167" text-anchor="middle" style="fill:#c0392b">create ns "evil-1"</text>
+  <text class="sub" x="120" y="185" text-anchor="middle">RBAC says: allowed</text>
+  <text class="sub" x="120" y="199" text-anchor="middle">(verb is name-blind)</text>
+
+  <!-- step 2: webhook -->
+  <text class="step" x="270" y="130">Step 2 — admission webhook fires</text>
+  <rect class="wh" x="270" y="145" width="220" height="60" rx="8"/>
+  <text class="ttl" x="380" y="167" text-anchor="middle">Mutating webhook</text>
+  <text class="sub" x="380" y="185" text-anchor="middle">"creator becomes admin"</text>
+  <text class="sub" x="380" y="199" text-anchor="middle">writes a RoleBinding</text>
+
+  <!-- arrow 1->2 -->
+  <line class="arr" x1="220" y1="175" x2="266" y2="175" marker-end="url(#esc)"/>
+
+  <!-- step 3: result -->
+  <text class="step" x="530" y="130">Step 3 — full admin in evil-1</text>
+  <rect class="nsbad" x="530" y="145" width="210" height="60" rx="8"/>
+  <text class="ttl" x="635" y="167" text-anchor="middle" style="fill:#c0392b">admin in evil-1</text>
+  <text class="sub" x="635" y="185" text-anchor="middle">workload free-for-all</text>
+  <text class="sub" x="635" y="199" text-anchor="middle">outside pr-* sandbox</text>
+
+  <!-- arrow 2->3 -->
+  <line class="arr" x1="490" y1="175" x2="526" y2="175" marker-end="url(#esc)"/>
+
+  <!-- bottom narrative -->
+  <rect x="20" y="240" width="720" height="60" rx="8" fill="#fdf2f0" stroke="#c0392b" stroke-width="1.2"/>
+  <text class="ttl" x="40" y="264" style="fill:#c0392b">Net effect</text>
+  <text class="sub" x="40" y="284">The RBAC restriction "only <tspan font-family="monospace">pr-*</tspan>" was logically circumvented by creating a *new* namespace the principal owns.</text>
+</svg>
+</div>
+<p class="caption">When the cluster auto-promotes namespace creators, <code>create namespaces</code> is effectively <code>cluster-admin in any tenancy you invent</code>.</p>
+
+<div class="callout">
+  <strong>Detection is also harder here</strong>
+  An audit log entry saying "principal X created namespace Y" looks identical whether Y is a legitimate PR or an attacker tenancy. You have to correlate with subsequent workload activity to tell them apart — and most teams don't have that pipeline wired up.
+</div>
+
+<div class="callout info">
+  <strong>How to defuse this</strong>
+  Either (a) don't run namespace-auto-admin webhooks in clusters where untrusted-ish principals hold <code>create namespaces</code>, or (b) make the webhook itself check the namespace name against a per-principal allowlist before issuing the admin binding. The second is what mature self-service controllers (like Capsule's tenant scoping) actually do.
+</div>
+
+<!-- =============================================================== -->
+<h2 id="tm4"><span class="num">5</span>Threat model 4 — GitHub Actions on a <code>pull_request</code> trigger</h2>
+
+<div class="threat-header">
+  <span class="pill critical">Risk: maximum</span>
+  <span class="pill">Recommended: Path B if remotely feasible</span>
+</div>
+
+<p>This is the threat model the OIDC setup doc actually cares about, and the reason §4 of that doc exists at all. A GitHub Actions principal <strong>isn't a person</strong> — it's whatever code happens to be checked out at the time the workflow runs.</p>
+
+<div class="analogy">
+  <h4>The crucial difference</h4>
+  <p style="margin:0;">When you grant your laptop a permission, you're trusting <em>yourself</em>. When you grant a <code>pull_request</code>-triggered GitHub Actions workflow a permission, you're trusting <em>any code anyone ever opens a PR with</em>. Those are not the same trust boundary. The PR author is, in the worst case, an internet stranger writing exploitative code.</p>
+</div>
+
+<p>Combine that trust model with <code>create namespaces</code> and the attacks compound:</p>
+
+<ul>
+  <li><strong>Cluster shadowing.</strong> Malicious PR triggers a workflow that creates <code>kube-system-2</code> or shadow-names variations of real namespaces, then schedules privileged workloads inside. Even without auto-admin webhooks, the namespace name alone can interact with admission policies or controllers that key off names.</li>
+  <li><strong>DoS via namespace flood.</strong> The PR's CI script runs <code>for i in $(seq 1 10000); kubectl create ns x-$i</code>. Etcd writes spike, controllers queue, audit log explodes, real PR previews fail to deploy because the control plane is saturated.</li>
+  <li><strong>Lateral movement via §4's privilege escalation.</strong> If the cluster runs any namespace-creator-auto-admin webhook, the malicious PR escapes the <code>pr-*</code> sandbox in one step (see <a href="#tm3">§4</a>).</li>
+  <li><strong>Long-lived steady state.</strong> The OIDC token expires in an hour, but namespaces created during that hour persist until something deletes them. A single malicious run can leave permanent footprint.</li>
+</ul>
+
+<div class="callout">
+  <strong>Why the OIDC trust policy locks down to <code>pull_request</code> + one repo</strong>
+  Recall <a href="aws-oidc-setup-eli5.html#step2">§2 of the OIDC ELI5 doc</a>: the trust policy pins <code>sub</code> to one specific repo and one specific event. That narrowing is the only thing standing between "PR author" and "anyone on GitHub." A wildcard <code>repo:owner/*:*</code> would let any workflow in any repo (including freshly-forked ones) assume the role. With <code>create namespaces</code> on the other side of that gate, a misconfigured trust policy is game over.
+</div>
+
+<div class="callout good">
+  <strong>The two production-grade options</strong>
+  <p style="margin:6px 0;">Both are documented in <a href="aws-oidc-setup.md#4-kubernetes-rbac-for-namespace-creation">aws-oidc-setup.md §4</a>:</p>
+  <ul style="margin:6px 0;">
+    <li><strong>Path A</strong> — grant the verb, but bind a <code>ValidatingAdmissionPolicy</code> (or Kyverno/OPA) restricting namespace names to <code>pr-*</code> for this group. RBAC + admission policy together = the bounded capability RBAC alone can't express.</li>
+    <li><strong>Path B</strong> — don't grant the verb at all. Have an admin or controller pre-create <code>pr-&lt;N&gt;</code> on PR open, and run <code>deploy-pr up &lt;N&gt; --create-namespace=false</code>. The CI principal stays strictly namespace-scoped with no cluster-scoped verbs whatsoever.</li>
+  </ul>
+  <p style="margin:6px 0;">Path B is the safer default for any cluster where untrusted PR code might run. Path A is acceptable when the admission policy is in place and audited.</p>
+</div>
+
+<!-- =============================================================== -->
+<h2 id="matrix"><span class="num">6</span>Decision matrix</h2>
+
+<p>Same verb, four threat models, four answers:</p>
+
+<table class="matrix">
+  <thead>
+    <tr>
+      <th>Threat model</th>
+      <th>Who holds the credential</th>
+      <th>Worst case</th>
+      <th>Grant <code>create namespaces</code>?</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>TM1 — Laptop, dev cluster</strong></td>
+      <td>You</td>
+      <td>Typo, recreate it</td>
+      <td><span class="pill low">Yes, no guardrails needed</span></td>
+    </tr>
+    <tr>
+      <td><strong>TM2 — Laptop, shared cluster</strong></td>
+      <td>You + 20 colleagues</td>
+      <td>Collision, accidental DoS, lost credential lateral movement</td>
+      <td><span class="pill med">Yes, pair with admission policy and audit</span></td>
+    </tr>
+    <tr>
+      <td><strong>TM3 — Cluster with auto-admin webhooks</strong></td>
+      <td>Anyone with the verb</td>
+      <td>Privilege escalation to admin of attacker-named namespace</td>
+      <td><span class="pill high">Only if webhook itself restricts by name</span></td>
+    </tr>
+    <tr>
+      <td><strong>TM4 — GitHub Actions <code>pull_request</code></strong></td>
+      <td>Any PR author, including forks</td>
+      <td>Shadow namespaces, control-plane DoS, sandbox escape</td>
+      <td><span class="pill critical">Prefer Path B; if Path A, admission policy is mandatory</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout good">
+  <strong>The portable rule</strong>
+  Capability + threat model + guardrails = effective risk. <code>create namespaces</code> is identical capability across all four rows. What changes is who's holding it and what else exists to bound it. The verb is never "safe" or "unsafe" in the abstract — it's safe relative to a threat model.
+</div>
+
+<p>See also:</p>
+
+<ul>
+  <li><a href="kubernetes-namespaces-eli5.html">kubernetes-namespaces-eli5.html</a> — what a namespace is and why "create namespace" is structurally cluster-scoped.</li>
+  <li><a href="aws-oidc-setup.md#4-kubernetes-rbac-for-namespace-creation">aws-oidc-setup.md §4</a> — Path A and Path B, with the exact commands.</li>
+  <li><a href="aws-oidc-setup-eli5.html#step4">aws-oidc-setup-eli5.html §4</a> — friendlier walkthrough of the same two paths.</li>
+</ul>
+
+<footer>
+  Companion to <code>docs/aws-oidc-setup.md</code>. This page is the threat-model layer underneath the procedural guidance. For exact commands and canonical wording, the markdown is the source of truth.
+</footer>
+
+</div>
+</body>
+</html>
