@@ -22,6 +22,7 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 		imageTag        string
 		clone           bool
 		createNamespace bool
+		platform        string
 	)
 	cmd := &cobra.Command{
 		Use:   "up <PR#>",
@@ -50,6 +51,14 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 			namespace := fmt.Sprintf("%s%d", root.cfg.Namespace.Prefix, pr.Number)
 			host := fmt.Sprintf("%s.%s", namespace, root.cfg.BaseDomain)
 
+			buildPlatform := platform
+			if buildPlatform == "" {
+				buildPlatform = root.cfg.Platform
+			}
+			if buildPlatform == "" {
+				buildPlatform = "linux/amd64"
+			}
+
 			if dryRun {
 				fmt.Fprintf(root.stdout, "PR #%d on %s/%s\n", pr.Number, pr.RepoOwner, pr.RepoName)
 				fmt.Fprintf(root.stdout, "  title:     %s\n", pr.Title)
@@ -67,6 +76,9 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 						tag = fmt.Sprintf("pr-%d-%s", pr.Number, pr.ShortSHA())
 					}
 					fmt.Fprintf(root.stdout, "  image:     %s:%s\n", root.cfg.ECRRepoURI, tag)
+					if imageTag == "" {
+						fmt.Fprintf(root.stdout, "  platform:  %s\n", buildPlatform)
+					}
 				}
 				fmt.Fprintln(root.stdout, "(dry-run: no build, push, or deploy performed)")
 				return nil
@@ -88,7 +100,7 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 					defer cleanup()
 					contextDir = dir
 				}
-				if err := buildAndPushImage(c.Context(), root, pr, tag, contextDir); err != nil {
+				if err := buildAndPushImage(c.Context(), root, pr, tag, contextDir, buildPlatform); err != nil {
 					return err
 				}
 			} else {
@@ -112,10 +124,11 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 	cmd.Flags().StringVar(&imageTag, "image-tag", "", "use a pre-built image tag instead of building locally")
 	cmd.Flags().BoolVar(&clone, "clone", false, "shallow-fetch the PR head into a temp dir and build from there (default: build from current directory)")
 	cmd.Flags().BoolVar(&createNamespace, "create-namespace", true, "create the target namespace if missing (requires cluster-scoped 'create namespaces' RBAC; set false when an admin pre-creates pr-<N>)")
+	cmd.Flags().StringVar(&platform, "platform", "", "buildx target platform, e.g. linux/arm64 (overrides config; default linux/amd64)")
 	return cmd
 }
 
-func buildAndPushImage(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag, contextDir string) error {
+func buildAndPushImage(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag, contextDir, platform string) error {
 	root.logger.Info("authenticating to ECR", "region", root.cfg.Region)
 	auth, err := ecr.New(ctx, root.cfg.Region)
 	if err != nil {
@@ -129,10 +142,12 @@ func buildAndPushImage(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, ta
 	root.logger.Info("building image",
 		"tags", []string{tag, latest},
 		"context", contextDir,
+		"platform", platform,
 	)
 	builder := docker.New(root.stderr, root.stderr)
 	return mapBuildErr(builder.Build(ctx, docker.BuildOptions{
 		ContextDir: contextDir,
+		Platform:   platform,
 		Tags: []string{
 			fmt.Sprintf("%s:%s", root.cfg.ECRRepoURI, tag),
 			fmt.Sprintf("%s:%s", root.cfg.ECRRepoURI, latest),

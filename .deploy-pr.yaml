@@ -28,6 +28,11 @@ region: us-east-1
 # Path to the Helm chart (relative to repo root). Defaults to charts/preview.
 chart_path: charts/preview
 
+# buildx target platform for the PR image. Must match the architecture of
+# your EKS nodes (linux/amd64 for x86_64, linux/arm64 for Graviton).
+# Defaults to linux/amd64. Overridden by --platform.
+# platform: linux/amd64
+
 # Namespace naming. A PR is deployed to namespace <prefix><N> (default: pr-123).
 namespace:
   prefix: pr-

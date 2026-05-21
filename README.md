@@ -55,7 +55,7 @@ A documented sample is checked into the repo as [`.deploy-pr.yaml`](.deploy-pr.y
 ## Commands
 
 ```text
-deploy-pr up <PR#> [--comment-on-pr] [--dry-run] [--image-tag <tag>]
+deploy-pr up <PR#> [--comment-on-pr] [--dry-run] [--image-tag <tag>] [--platform <os/arch>]
 deploy-pr down <PR#> [--comment-on-pr] [--keep-namespace]
 deploy-pr list [-o text|json]
 deploy-pr version
@@ -98,6 +98,8 @@ The Helm chart at [`charts/preview`](charts/preview) renders Namespace+Deploymen
 **`namespaces is forbidden: ... cannot create resource "namespaces" ... at the cluster scope`** — the principal lacks cluster-scoped `create namespaces` RBAC. Either grant it (see [`docs/aws-oidc-setup.md`](docs/aws-oidc-setup.md) §4 Path A) or pre-create `pr-<N>` and pass `--create-namespace=false` (Path B).
 
 **`deploy-pr list` shows status `orphaned`** — namespace exists but no Helm release. The CI `down` job likely failed; clean up with `deploy-pr down <PR>` from a laptop.
+
+**`exec format error` in pod logs** — image was built for the wrong CPU architecture. Default build target is `linux/amd64`; on Graviton/arm64 nodes set `platform: linux/arm64` in `.deploy-pr.yaml`, export `DEPLOY_PR_PLATFORM=linux/arm64`, or pass `--platform linux/arm64`. Note that the Dockerfile must also honor `$TARGETARCH` (e.g. `GOARCH=$TARGETARCH go build`) or the cross-arch build will still embed a host-native binary.
 
 **Preview URL doesn't resolve** — confirm `*.preview.<domain>` has a wildcard DNS record, ExternalDNS is running, and the ingress class matches your controller.
 

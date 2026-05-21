@@ -20,6 +20,7 @@ type Config struct {
 	ClusterName string        `mapstructure:"cluster_name"`
 	BaseDomain  string        `mapstructure:"base_domain"`
 	ChartPath   string        `mapstructure:"chart_path"`
+	Platform    string        `mapstructure:"platform"`
 	Namespace   NamespaceCfg  `mapstructure:"namespace"`
 	Timeout     time.Duration `mapstructure:"timeout"`
 	LogFormat   string        `mapstructure:"log_format"`
@@ -40,6 +41,7 @@ var envBindings = []string{
 	"cluster_name",
 	"base_domain",
 	"chart_path",
+	"platform",
 	"namespace.prefix",
 	"timeout",
 	"log_format",

@@ -16,6 +16,7 @@ var allEnvVars = []string{
 	"DEPLOY_PR_CLUSTER_NAME",
 	"DEPLOY_PR_BASE_DOMAIN",
 	"DEPLOY_PR_CHART_PATH",
+	"DEPLOY_PR_PLATFORM",
 	"DEPLOY_PR_NAMESPACE_PREFIX",
 	"DEPLOY_PR_TIMEOUT",
 	"DEPLOY_PR_LOG_FORMAT",
@@ -125,6 +126,21 @@ func TestLoad_NestedEnvOverride(t *testing.T) {
 	}
 	if cfg.Namespace.Prefix != "ns-" {
 		t.Errorf("Namespace.Prefix = %q, want ns-", cfg.Namespace.Prefix)
+	}
+}
+
+func TestLoad_PlatformFromEnv(t *testing.T) {
+	clearEnv(t)
+	chdir(t, t.TempDir())
+
+	t.Setenv("DEPLOY_PR_PLATFORM", "linux/arm64")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Platform != "linux/arm64" {
+		t.Errorf("Platform = %q, want linux/arm64", cfg.Platform)
 	}
 }
 
