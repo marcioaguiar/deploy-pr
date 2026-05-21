@@ -1,0 +1,104 @@
+# Comment-triggered variant of .github/workflows/preview.yml.
+#
+# Instead of rebuilding the preview on every push to a PR, this workflow only
+# deploys when someone comments `/preview` on the PR. Teardown still runs
+# automatically when the PR closes so environments don't leak.
+#
+# Drop this in the repo whose application you want previewable, adjust the
+# env block, and create the IAM role described in docs/aws-oidc-setup.md.
+
+name: PR preview (on comment)
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [closed]   # keep this so teardown still happens automatically
+
+# One workflow per PR. A second `/preview` comment while one is in flight
+# cancels the first so we don't race two image rollouts on the same release.
+concurrency:
+  group: preview-${{ github.event.issue.number || github.event.number }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write       # to assume the AWS IAM role via OIDC
+  contents: read
+  pull-requests: write  # to post the sticky preview comment
+
+jobs:
+  preview:
+    # Run on `/preview` comments on PRs (not plain issues), or on PR close.
+    # The author_association check refuses comments from drive-by accounts so
+    # that random commenters can't trigger an AWS-credentialed build. Adjust
+    # the allowed associations to match your team's trust model.
+    if: |
+      (github.event_name == 'issue_comment'
+        && github.event.issue.pull_request != null
+        && startsWith(github.event.comment.body, '/preview')
+        && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+                    github.event.comment.author_association))
+      || (github.event_name == 'pull_request' && github.event.action == 'closed')
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      AWS_ROLE_ARN: arn:aws:iam::000000000000:role/github-deploy-pr
+      EKS_CLUSTER: dev-cluster
+      DEPLOY_PR_BASE_DOMAIN: preview.example.com
+      DEPLOY_PR_ECR_REPO_URI: 000000000000.dkr.ecr.us-east-1.amazonaws.com/myapp
+      DEPLOY_PR_CLUSTER_NAME: dev-cluster
+      DEPLOY_PR_PLATFORM: linux/arm64
+
+    steps:
+      # Normalize the PR number across event types: issue_comment puts it at
+      # github.event.issue.number, pull_request puts it at github.event.number.
+      - name: Resolve PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # On issue_comment the default checkout ref is the base branch's HEAD,
+      # not the PR's. Explicitly check out the PR head so we build the right
+      # commit. On `pull_request: closed` the default ref is fine, but using
+      # the same ref here is harmless and keeps the step uniform.
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ steps.pr.outputs.number }}/head
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Install deploy-pr
+        run: go install github.com/marcioaguiar/deploy-pr@latest
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name == 'issue_comment'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
+
+      - name: Deploy preview
+        if: github.event_name == 'issue_comment'
+        run: deploy-pr up ${{ steps.pr.outputs.number }} --comment-on-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tear down preview
+        if: github.event_name == 'pull_request' && github.event.action == 'closed'
+        run: deploy-pr down ${{ steps.pr.outputs.number }} --comment-on-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
