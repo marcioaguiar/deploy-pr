@@ -1,6 +1,7 @@
 package helm
 
 import (
+	"os"
 	"reflect"
 	"testing"
 )
@@ -35,7 +36,7 @@ func TestBuildValues_OptionalFieldsOmittedWhenZero(t *testing.T) {
 		ImageTag:        "y",
 		Host:            "h",
 	})
-	for _, key := range []string{"replicas", "containerPort", "env", "tls"} {
+	for _, key := range []string{"replicas", "containerPort", "env", "tls", "postgres"} {
 		if _, ok := v[key]; ok {
 			t.Errorf("%q should be omitted when not set", key)
 		}
@@ -53,6 +54,7 @@ func TestBuildValues_OptionalFieldsRoundTrip(t *testing.T) {
 		ContainerPort:   3000,
 		Env:             map[string]string{"FOO": "bar"},
 		TLSEnabled:      true,
+		PostgresEnabled: true,
 	})
 	if v["replicas"] != 3 {
 		t.Errorf("replicas = %v", v["replicas"])
@@ -68,6 +70,10 @@ func TestBuildValues_OptionalFieldsRoundTrip(t *testing.T) {
 	if !ok || tlsMap["enabled"] != true {
 		t.Errorf("tls = %v", v["tls"])
 	}
+	postgresMap, ok := v["postgres"].(map[string]any)
+	if !ok || postgresMap["enabled"] != true {
+		t.Errorf("postgres = %v", v["postgres"])
+	}
 }
 
 func TestBuildValues_PRNumberIsAlwaysString(t *testing.T) {
@@ -76,5 +82,46 @@ func TestBuildValues_PRNumberIsAlwaysString(t *testing.T) {
 	v := BuildValues(ValuesInput{PRNumber: 7, ImageRepository: "x", ImageTag: "y", Host: "h"})
 	if got, ok := v["prNumber"].(string); !ok || got != "7" {
 		t.Errorf("prNumber = %v (type %T), want \"7\" string", v["prNumber"], v["prNumber"])
+	}
+}
+
+func TestMergeValues_RecursivelyOverlaysMaps(t *testing.T) {
+	got := MergeValues(
+		map[string]any{
+			"image": map[string]any{
+				"repository": "repo",
+				"tag":        "old",
+			},
+			"envFrom": []any{"old"},
+		},
+		map[string]any{
+			"image": map[string]any{
+				"tag": "new",
+			},
+			"envFrom": []any{"new"},
+		},
+	)
+
+	image := got["image"].(map[string]any)
+	if image["repository"] != "repo" || image["tag"] != "new" {
+		t.Errorf("image merge = %#v", image)
+	}
+	if !reflect.DeepEqual(got["envFrom"], []any{"new"}) {
+		t.Errorf("envFrom = %#v", got["envFrom"])
+	}
+}
+
+func TestLoadValuesFile(t *testing.T) {
+	path := t.TempDir() + "/values.yaml"
+	if err := os.WriteFile(path, []byte("postgres:\n  enabled: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadValuesFile(path)
+	if err != nil {
+		t.Fatalf("load values: %v", err)
+	}
+	postgres := got["postgres"].(map[string]any)
+	if postgres["enabled"] != true {
+		t.Errorf("postgres.enabled = %v", postgres["enabled"])
 	}
 }

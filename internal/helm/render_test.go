@@ -142,6 +142,66 @@ func TestPreviewChart_ReplicasAndEnvRender(t *testing.T) {
 	}
 }
 
+func TestPreviewChart_EnvFromRenders(t *testing.T) {
+	c, _ := LoadChart(loadPreview(t))
+	out, err := Render(c, RenderOptions{
+		ReleaseName: "pr-31",
+		Namespace:   "pr-31",
+		Values: map[string]any{
+			"image": map[string]any{"repository": "x/y", "tag": "v1"},
+			"host":  "pr-31.preview.example.com",
+			"envFrom": []any{
+				map[string]any{
+					"secretRef": map[string]any{"name": "preview-database-url"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	deploy := out["preview/templates/deployment.yaml"]
+	if !strings.Contains(deploy, "envFrom:") || !strings.Contains(deploy, "name: preview-database-url") {
+		t.Errorf("envFrom secret missing:\n%s", deploy)
+	}
+}
+
+func TestPreviewChart_PostgresEnabledRendersDatabaseResources(t *testing.T) {
+	c, _ := LoadChart(loadPreview(t))
+	out, err := Render(c, RenderOptions{
+		ReleaseName: "pr-32",
+		Namespace:   "pr-32",
+		Values: map[string]any{
+			"image":    map[string]any{"repository": "x/y", "tag": "v1"},
+			"host":     "pr-32.preview.example.com",
+			"postgres": map[string]any{"enabled": true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, p := range []string{
+		"preview/templates/postgres-secret.yaml",
+		"preview/templates/postgres-service.yaml",
+		"preview/templates/postgres-statefulset.yaml",
+	} {
+		if _, ok := out[p]; !ok {
+			t.Errorf("missing postgres template %q in render output (have: %v)", p, SortedKeys(out))
+		}
+	}
+	deploy := out["preview/templates/deployment.yaml"]
+	if !strings.Contains(deploy, "name: DATABASE_URL") || !strings.Contains(deploy, "name: pr-32-postgres") {
+		t.Errorf("deployment DATABASE_URL secret ref missing:\n%s", deploy)
+	}
+	secret := out["preview/templates/postgres-secret.yaml"]
+	if !strings.Contains(secret, "DATABASE_URL: \"postgres://app:") {
+		t.Errorf("secret DATABASE_URL missing:\n%s", secret)
+	}
+	if !strings.Contains(out["preview/templates/postgres-statefulset.yaml"], "image: \"postgres:16\"") {
+		t.Errorf("postgres image missing:\n%s", out["preview/templates/postgres-statefulset.yaml"])
+	}
+}
+
 func TestPreviewChart_CreateNamespaceTrue(t *testing.T) {
 	c, _ := LoadChart(loadPreview(t))
 	out, err := Render(c, RenderOptions{

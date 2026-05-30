@@ -1,6 +1,12 @@
 package helm
 
-import "strconv"
+import (
+	"fmt"
+	"os"
+	"strconv"
+
+	"gopkg.in/yaml.v3"
+)
 
 // ValuesInput is the typed shape of everything deploy-pr needs to fill into
 // charts/preview's values. Constructing the map by hand from typed fields
@@ -15,6 +21,7 @@ type ValuesInput struct {
 	ContainerPort   int
 	Env             map[string]string
 	TLSEnabled      bool
+	PostgresEnabled bool
 }
 
 // BuildValues converts a ValuesInput to the nested map[string]any shape
@@ -46,5 +53,43 @@ func BuildValues(in ValuesInput) map[string]any {
 	if in.TLSEnabled {
 		v["tls"] = map[string]any{"enabled": true}
 	}
+	if in.PostgresEnabled {
+		v["postgres"] = map[string]any{"enabled": true}
+	}
 	return v
+}
+
+// LoadValuesFile reads a Helm-style YAML values file into a map.
+func LoadValuesFile(path string) (map[string]any, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read values file %q: %w", path, err)
+	}
+	var v map[string]any
+	if err := yaml.Unmarshal(b, &v); err != nil {
+		return nil, fmt.Errorf("parse values file %q: %w", path, err)
+	}
+	if v == nil {
+		v = map[string]any{}
+	}
+	return v, nil
+}
+
+// MergeValues recursively overlays src onto dst and returns dst. It follows
+// Helm values-file semantics for maps: nested maps are merged, scalars and
+// lists are replaced.
+func MergeValues(dst, src map[string]any) map[string]any {
+	if dst == nil {
+		dst = map[string]any{}
+	}
+	for k, srcVal := range src {
+		srcMap, srcOK := srcVal.(map[string]any)
+		dstMap, dstOK := dst[k].(map[string]any)
+		if srcOK && dstOK {
+			dst[k] = MergeValues(dstMap, srcMap)
+			continue
+		}
+		dst[k] = srcVal
+	}
+	return dst
 }

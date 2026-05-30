@@ -26,6 +26,31 @@
       }
     },
     "env": {"type": "object"},
+    "envFrom": {"type": "array"},
+    "postgres": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": {"type": "string", "minLength": 1},
+            "tag": {"type": "string", "minLength": 1},
+            "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
+          }
+        },
+        "database": {"type": "string", "minLength": 1},
+        "username": {"type": "string", "minLength": 1},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "storage": {
+          "type": "object",
+          "properties": {
+            "size": {"type": "string", "minLength": 1}
+          }
+        },
+        "resources": {"type": "object"}
+      }
+    },
     "resources": {"type": "object"},
     "service": {
       "type": "object",

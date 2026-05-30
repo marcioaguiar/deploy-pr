@@ -36,6 +36,33 @@ tls:
 # container. Use a separate Secret + envFrom for sensitive data.
 env: {}
 
+# Free-form envFrom entries appended to the app container. This is the
+# preferred escape hatch for project-owned Secrets/ConfigMaps, including an
+# existing external database Secret.
+envFrom: []
+
+# Disposable in-cluster PostgreSQL for preview environments. Enable with
+# `deploy-pr up <PR#> --postgres` or by setting postgres.enabled=true in a
+# values file. Data is intentionally tied to the preview release lifecycle.
+postgres:
+  enabled: false
+  image:
+    repository: postgres
+    tag: "16"
+    pullPolicy: IfNotPresent
+  database: app
+  username: app
+  port: 5432
+  storage:
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
 # Resource requests/limits. Conservative defaults suited to ephemeral previews.
 resources:
   requests:

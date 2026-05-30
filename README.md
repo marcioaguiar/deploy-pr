@@ -55,7 +55,7 @@ A documented sample is checked into the repo as [`.deploy-pr.yaml`](.deploy-pr.y
 ## Commands
 
 ```text
-deploy-pr up <PR#> [--comment-on-pr] [--dry-run] [--image-tag <tag>] [--platform <os/arch>]
+deploy-pr up <PR#> [--comment-on-pr] [--dry-run] [--image-tag <tag>] [--platform <os/arch>] [--postgres] [-f values.yaml]
 deploy-pr down <PR#> [--comment-on-pr] [--keep-namespace]
 deploy-pr list [-o text|json]
 deploy-pr version
@@ -64,6 +64,30 @@ deploy-pr version
 Global flags: `--config`, `--repo owner/name`, `--github-token`, `--log-format text|json`, `-v / --verbose`.
 
 `up` is idempotent: re-running on the same PR rolls the new commit's image without disturbing the namespace.
+
+### PostgreSQL previews
+
+For a disposable database per preview, pass `--postgres`:
+
+```bash
+deploy-pr up 123 --postgres
+```
+
+This deploys an in-cluster PostgreSQL StatefulSet in the preview namespace and injects `DATABASE_URL` into the app container from a generated Secret. The data is intentionally ephemeral; `deploy-pr down 123` removes it with the preview namespace.
+
+For an existing database, keep lifecycle outside `deploy-pr` and pass project-owned Helm values:
+
+```bash
+deploy-pr up 123 -f .deploy-pr/preview-values.yaml
+```
+
+Example values file using an existing Secret:
+
+```yaml
+envFrom:
+  - secretRef:
+      name: preview-database-url
+```
 
 ## GitHub Actions
 

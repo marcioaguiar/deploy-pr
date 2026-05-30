@@ -26,12 +26,25 @@ spec:
             - name: http
               containerPort: {{ .Values.containerPort }}
               protocol: TCP
-          {{- with .Values.env }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or .Values.env .Values.postgres.enabled }}
           env:
+            {{- if .Values.postgres.enabled }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "preview.postgresSecretName" . }}
+                  key: DATABASE_URL
+            {{- end }}
+          {{- with .Values.env }}
             {{- range $k, $v := . }}
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
+          {{- end }}
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

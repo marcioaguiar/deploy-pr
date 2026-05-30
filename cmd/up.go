@@ -23,6 +23,8 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 		clone           bool
 		createNamespace bool
 		platform        string
+		postgres        bool
+		valuesFiles     []string
 	)
 	cmd := &cobra.Command{
 		Use:   "up <PR#>",
@@ -80,6 +82,12 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 						fmt.Fprintf(root.stdout, "  platform:  %s\n", buildPlatform)
 					}
 				}
+				if postgres {
+					fmt.Fprintf(root.stdout, "  postgres:  enabled\n")
+				}
+				for _, path := range valuesFiles {
+					fmt.Fprintf(root.stdout, "  values:    %s\n", path)
+				}
 				fmt.Fprintln(root.stdout, "(dry-run: no build, push, or deploy performed)")
 				return nil
 			}
@@ -107,7 +115,7 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 				root.logger.Info("skipping build, using --image-tag override", "tag", tag)
 			}
 
-			if err := installPreview(c.Context(), root, pr, tag, namespace, host, createNamespace); err != nil {
+			if err := installPreview(c.Context(), root, pr, tag, namespace, host, createNamespace, postgres, valuesFiles); err != nil {
 				return err
 			}
 
@@ -125,6 +133,8 @@ func newUpCmd(root *rootOpts) *cobra.Command {
 	cmd.Flags().BoolVar(&clone, "clone", false, "shallow-fetch the PR head into a temp dir and build from there (default: build from current directory)")
 	cmd.Flags().BoolVar(&createNamespace, "create-namespace", true, "create the target namespace if missing (requires cluster-scoped 'create namespaces' RBAC; set false when an admin pre-creates pr-<N>)")
 	cmd.Flags().StringVar(&platform, "platform", "", "buildx target platform, e.g. linux/arm64 (overrides config; default linux/amd64)")
+	cmd.Flags().BoolVar(&postgres, "postgres", false, "deploy a disposable in-cluster PostgreSQL database and expose DATABASE_URL to the app")
+	cmd.Flags().StringArrayVarP(&valuesFiles, "values", "f", nil, "merge a Helm values file into the preview chart; may be specified multiple times")
 	return cmd
 }
 
@@ -214,19 +224,30 @@ func postReadyComment(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag
 	root.logger.Info("comment-on-pr: sticky comment posted", "id", id)
 }
 
-func installPreview(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag, namespace, host string, createNamespace bool) error {
+func installPreview(ctx context.Context, root *rootOpts, pr *ghpkg.PRInfo, tag, namespace, host string, createNamespace, postgres bool, valuesFiles []string) error {
 	chart, err := helm.LoadChart(root.cfg.ChartPath)
 	if err != nil {
 		return userErr(fmt.Errorf("load chart %s: %w", root.cfg.ChartPath, err))
 	}
 
-	values := helm.BuildValues(helm.ValuesInput{
+	values := map[string]any{}
+	for _, path := range valuesFiles {
+		fileValues, err := helm.LoadValuesFile(path)
+		if err != nil {
+			return userErr(err)
+		}
+		values = helm.MergeValues(values, fileValues)
+	}
+
+	generatedValues := helm.BuildValues(helm.ValuesInput{
 		PRNumber:        pr.Number,
 		ShortSHA:        pr.ShortSHA(),
 		ImageRepository: root.cfg.ECRRepoURI,
 		ImageTag:        tag,
 		Host:            host,
+		PostgresEnabled: postgres,
 	})
+	values = helm.MergeValues(values, generatedValues)
 
 	mgr, err := helm.NewManager(namespace, root.logger)
 	if err != nil {
